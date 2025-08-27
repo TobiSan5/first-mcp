@@ -1,0 +1,50 @@
+# MANIFEST.in - Package distribution manifest for first-mcp
+# Include additional files for PyPI distribution
+
+# Core documentation
+include README.md
+include LICENSE
+include ROADMAP.md
+
+# Configuration examples
+include claude_desktop_config.example.json
+include environment.yml
+include requirements.txt
+
+# Development and testing files
+include setup.py
+include pyproject.toml
+
+# Memory system data files (examples)
+include memory_categories.json
+include memory_tags.json
+
+# Source package structure
+recursive-include src/first_mcp *.py
+recursive-include src/first_mcp *.json
+recursive-include src/first_mcp *.md
+
+# Exclude development and cache files
+global-exclude __pycache__
+global-exclude *.py[co]
+global-exclude .git*
+global-exclude .DS_Store
+global-exclude *.egg-info
+global-exclude build
+global-exclude dist
+
+# Exclude Claude Code development files (not needed for PyPI users)
+exclude CLAUDE.md
+exclude .claude/
+
+# Exclude user data and test databases
+exclude memory_store.json
+exclude tinydb_*.json
+exclude *.db
+
+# Exclude test and debug files
+exclude test_*.py
+exclude debug_*.py
+exclude *_assessment.md
+exclude migrate_to_tinydb.py
+exclude remove_*.py

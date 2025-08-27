@@ -1,0 +1,117 @@
+name: PyPI Publication
+
+on:
+  release:
+    types: [published]
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      test_pypi:
+        description: 'Publish to Test PyPI instead of production'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  PYTHON_VERSION: '3.13'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine check-wheel-contents
+    
+    - name: Build package
+      run: |
+        python -m build
+    
+    - name: Check built packages
+      run: |
+        check-wheel-contents dist/
+        twine check dist/*
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: dist-packages
+        path: dist/
+
+  test-install:
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+    
+    steps:
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: dist-packages
+        path: dist/
+    
+    - name: Test wheel installation
+      run: |
+        python -m pip install --upgrade pip
+        pip install dist/*.whl
+        python -c "import first_mcp; print(f'Successfully installed first-mcp v{first_mcp.__version__}')"
+        python -c "from first_mcp.memory import tinydb_memorize; print('Memory system import successful')"
+
+  publish-test-pypi:
+    if: github.event.inputs.test_pypi == 'true' || contains(github.ref, 'dev')
+    needs: [build, test-install]
+    runs-on: ubuntu-latest
+    environment: test-pypi
+    
+    steps:
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: dist-packages
+        path: dist/
+    
+    - name: Publish to Test PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        repository-url: https://test.pypi.org/legacy/
+        password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        verbose: true
+
+  publish-pypi:
+    if: github.event_name == 'release' || (startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, 'dev'))
+    needs: [build, test-install]
+    runs-on: ubuntu-latest
+    environment: production-pypi
+    
+    steps:
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: dist-packages
+        path: dist/
+    
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        password: ${{ secrets.PYPI_API_TOKEN }}
+        verbose: true
