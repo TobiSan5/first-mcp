@@ -10,120 +10,141 @@ from typing import List, Dict, Any, Optional, Union
 from weather import WeatherAPI, GeocodingAPI
 from fileio import WorkspaceManager
 from calculate import Calculator, TimedeltaCalculator
-from tinydb import TinyDB, Query
-from tinydb.storages import JSONStorage
-from tinydb.middlewares import CachingMiddleware
+
+# Import memory system components
+try:
+    # Try to import from the memory package if available
+    from src.first_mcp.memory import (
+        get_memory_tinydb, get_tags_tinydb, get_categories_tinydb, get_custom_tinydb,
+        tinydb_memorize, tinydb_recall_memory, tinydb_search_memories, 
+        tinydb_list_memories, tinydb_update_memory, tinydb_delete_memory,
+        tinydb_memory_stats, tinydb_get_memory_categories, memory_workflow_guide,
+        tinydb_find_similar_tags, tinydb_get_all_tags,
+        find_similar_tags_internal, check_category_exists,
+        tinydb_create_database, tinydb_store_data, tinydb_query_data,
+        tinydb_update_data, tinydb_delete_data, tinydb_list_databases,
+        tinydb_get_database_info
+    )
+    MEMORY_PACKAGE_AVAILABLE = True
+except ImportError:
+    # Fallback: use legacy inline implementation
+    from tinydb import TinyDB, Query
+    from tinydb.storages import JSONStorage
+    from tinydb.middlewares import CachingMiddleware
+    MEMORY_PACKAGE_AVAILABLE = False
 
 # Create the MCP server
-mcp = FastMCP("First MCP Server")
+mcp = FastMCP(name="First MCP Server")
 
 # Initialize workspace manager and calculators
 workspace_manager = WorkspaceManager()
 calculator = Calculator()
 timedelta_calculator = TimedeltaCalculator()
 
-# Dedicated TinyDB helper functions for memories, tags, and categories
-def get_memory_tinydb():
-    """Get TinyDB instance for memories."""
-    base_path = os.getenv('FIRST_MCP_DATA_PATH', os.getcwd())
-    db_path = os.path.join(base_path, 'tinydb_memories.json')
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    return TinyDB(db_path, storage=CachingMiddleware(JSONStorage))
+# Conditionally define legacy memory functions if package not available
+if not MEMORY_PACKAGE_AVAILABLE:
+    # Dedicated TinyDB helper functions for memories, tags, and categories
+    def get_memory_tinydb():
+        """Get TinyDB instance for memories."""
+        base_path = os.getenv('FIRST_MCP_DATA_PATH', os.getcwd())
+        db_path = os.path.join(base_path, 'tinydb_memories.json')
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        return TinyDB(db_path, storage=CachingMiddleware(JSONStorage))
 
-def get_tags_tinydb():
-    """Get TinyDB instance for tags."""
-    base_path = os.getenv('FIRST_MCP_DATA_PATH', os.getcwd())
-    db_path = os.path.join(base_path, 'tinydb_tags.json')
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    return TinyDB(db_path, storage=CachingMiddleware(JSONStorage))
+    def get_tags_tinydb():
+        """Get TinyDB instance for tags."""
+        base_path = os.getenv('FIRST_MCP_DATA_PATH', os.getcwd())
+        db_path = os.path.join(base_path, 'tinydb_tags.json')
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        return TinyDB(db_path, storage=CachingMiddleware(JSONStorage))
 
-def get_categories_tinydb():
-    """Get TinyDB instance for categories."""
-    base_path = os.getenv('FIRST_MCP_DATA_PATH', os.getcwd())
-    db_path = os.path.join(base_path, 'tinydb_categories.json')
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    return TinyDB(db_path, storage=CachingMiddleware(JSONStorage))
+    def get_categories_tinydb():
+        """Get TinyDB instance for categories."""
+        base_path = os.getenv('FIRST_MCP_DATA_PATH', os.getcwd())
+        db_path = os.path.join(base_path, 'tinydb_categories.json')
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        return TinyDB(db_path, storage=CachingMiddleware(JSONStorage))
 
-def get_custom_tinydb(db_name: str):
-    """Get TinyDB instance for user-specified database."""
-    base_path = os.getenv('FIRST_MCP_DATA_PATH', os.getcwd())
-    # Add .json extension if not present
-    if not db_name.endswith('.json'):
-        db_name = f'{db_name}.json'
-    db_path = os.path.join(base_path, db_name)
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    return TinyDB(db_path, storage=CachingMiddleware(JSONStorage))
+    def get_custom_tinydb(db_name: str):
+        """Get TinyDB instance for user-specified database."""
+        base_path = os.getenv('FIRST_MCP_DATA_PATH', os.getcwd())
+        # Add .json extension if not present
+        if not db_name.endswith('.json'):
+            db_name = f'{db_name}.json'
+        db_path = os.path.join(base_path, db_name)
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        return TinyDB(db_path, storage=CachingMiddleware(JSONStorage))
 
-# Internal semantic search helper functions
-def _find_similar_tags_internal(query: str, limit: int = 5, min_similarity: float = 0.3):
-    """
-    Internal helper to find similar tags. Used by tinydb_search_memories for semantic expansion.
-    Returns list of similar tag names, not the full MCP tool response format.
-    """
-    try:
-        tags_db = get_tags_tinydb()
-        tags_table = tags_db.table('tags')
-        
-        all_tags = tags_table.all()
-        if not all_tags:
-            tags_db.close()
-            return []
-        
-        query_lower = query.lower().strip()
-        similar_tags = []
-        
-        for tag_entry in all_tags:
-            tag = tag_entry.get('tag', '')
-            similarity = 0.0
+    # Internal semantic search helper functions
+    def _find_similar_tags_internal(query: str, limit: int = 5, min_similarity: float = 0.3):
+        """
+        Internal helper to find similar tags. Used by tinydb_search_memories for semantic expansion.
+        Returns list of similar tag names, not the full MCP tool response format.
+        """
+        try:
+            tags_db = get_tags_tinydb()
+            tags_table = tags_db.table('tags')
             
-            if query_lower in tag.lower():
-                similarity = 0.8
-            elif any(word in tag.lower() for word in query_lower.split()):
-                similarity = 0.6
-            elif any(word in query_lower for word in tag.lower().split()):
-                similarity = 0.4
+            all_tags = tags_table.all()
+            if not all_tags:
+                tags_db.close()
+                return []
+            
+            query_lower = query.lower().strip()
+            similar_tags = []
+            
+            for tag_entry in all_tags:
+                tag = tag_entry.get('tag', '')
+                similarity = 0.0
                 
-            if similarity >= min_similarity:
-                similar_tags.append({
-                    "tag": tag,
-                    "similarity": similarity,
-                    "usage_count": tag_entry.get('usage_count', 0)
-                })
-        
-        # Sort by similarity first, then usage count
-        similar_tags.sort(key=lambda x: (x['similarity'], x['usage_count']), reverse=True)
-        tags_db.close()
-        
-        # Return just the tag names for internal use
-        return [tag_info["tag"] for tag_info in similar_tags[:limit]]
-        
-    except Exception as e:
-        return []
+                if query_lower in tag.lower():
+                    similarity = 0.8
+                elif any(word in tag.lower() for word in query_lower.split()):
+                    similarity = 0.6
+                elif any(word in query_lower for word in tag.lower().split()):
+                    similarity = 0.4
+                    
+                if similarity >= min_similarity:
+                    similar_tags.append({
+                        "tag": tag,
+                        "similarity": similarity,
+                        "usage_count": tag_entry.get('usage_count', 0)
+                    })
+            
+            # Sort by similarity first, then usage count
+            similar_tags.sort(key=lambda x: (x['similarity'], x['usage_count']), reverse=True)
+            tags_db.close()
+            
+            # Return just the tag names for internal use
+            return [tag_info["tag"] for tag_info in similar_tags[:limit]]
+            
+        except Exception as e:
+            return []
 
-def _check_category_exists(category: str):
-    """
-    Check if a category exists and return error info if not.
-    Returns (exists: bool, error_message: str, existing_categories: list)
-    """
-    try:
-        categories_db = get_categories_tinydb()
-        categories_table = categories_db.table('categories')
-        
-        all_categories = categories_table.all()
-        categories_db.close()
-        
-        if not all_categories:
-            return False, "No categories exist in database", []
-        
-        existing_cats = [cat.get('category', '') for cat in all_categories if cat.get('category')]
-        
-        # Check for exact match (case insensitive)
-        if category.lower() in [cat.lower() for cat in existing_cats if cat]:
-            return True, "", existing_cats
-        
-        # Category doesn't exist
-        error_msg = f"Category '{category}' not found. Available categories: {', '.join(existing_cats)}"
-        return False, error_msg, existing_cats
+    def _check_category_exists(category: str):
+        """
+        Check if a category exists and return error info if not.
+        Returns (exists: bool, error_message: str, existing_categories: list)
+        """
+        try:
+            categories_db = get_categories_tinydb()
+            categories_table = categories_db.table('categories')
+            
+            all_categories = categories_table.all()
+            categories_db.close()
+            
+            if not all_categories:
+                return False, "No categories exist in database", []
+            
+            existing_cats = [cat.get('category', '') for cat in all_categories if cat.get('category')]
+            
+            # Check for exact match (case insensitive)
+            if category.lower() in [cat.lower() for cat in existing_cats if cat]:
+                return True, "", existing_cats
+            
+            # Category doesn't exist
+            error_msg = f"Category '{category}' not found. Available categories: {', '.join(existing_cats)}"
+            return False, error_msg, existing_cats
         
     except Exception as e:
         return False, f"Error checking categories: {str(e)}", []

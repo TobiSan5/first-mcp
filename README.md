@@ -2,21 +2,24 @@
 
 A comprehensive MCP server for Claude Desktop featuring high-performance TinyDB memory management, workspace file I/O, weather data, and calendar functionality.
 
-## 🆕 Recent Updates: Code Optimization & Function Consolidation
+## 🆕 Recent Updates: Memory System Extracted as Core Package
 
-The TinyDB migration is now **complete with comprehensive optimization**:
+The memory system has been **extracted into a reusable core package**:
 
-- **Legacy module archived**: The `to_memorize.py` module has been moved to `_archived_src/` folder
-- **Clean codebase**: All references to legacy memory management removed from `server.py`
-- **Function consolidation**: Merged `get_memory_best_practices()` into `memory_workflow_guide()` for comprehensive guidance
-- **Enhanced workflow guide**: Now combines stored best practices retrieval with step-by-step workflow guidance
-- **Tool optimization**: Removed broken `tinydb_suggest_tags_for_content` and enhanced `tinydb_find_similar_tags` as primary tag suggestion tool
-- **Semantic search**: Enhanced `tinydb_search_memories` with automatic tag/category expansion for smarter, more forgiving search
-- **TinyDB-only architecture**: System runs entirely on high-performance TinyDB backend
-- **Improved performance**: Reduced startup time and memory footprint by removing duplicate code
-- **Full test coverage**: All functionality verified through debug mode and client testing
+- **Modular architecture**: Memory system extracted to `src/first_mcp/memory/` package for better organization
+- **Clean separation**: Database connections, memory tools, tag management, and semantic search now in separate modules
+- **Backward compatibility**: Main `server.py` automatically imports from memory package with fallback to inline implementation
+- **Reusable components**: Memory system can now be imported and used in other projects
+- **Package structure**:
+  - `memory/database.py`: TinyDB connection management
+  - `memory/memory_tools.py`: Core memory operations (memorize, search, update, delete)
+  - `memory/tag_tools.py`: Tag management and similarity matching
+  - `memory/semantic_search.py`: Semantic search helpers
+  - `memory/generic_tools.py`: Generic TinyDB database operations
+- **Enhanced maintainability**: Easier to test, modify, and extend individual components
+- **Import flexibility**: Graceful fallback ensures compatibility across different deployment scenarios
 
-**Migration completed**: 88 memories, 242 tags, and 8 categories successfully preserved in TinyDB format with legacy code safely archived and optimized.
+**Technical achievement**: 2000+ lines of memory functionality cleanly extracted into organized, importable modules while maintaining full backward compatibility.
 
 ## Features
 
@@ -69,7 +72,151 @@ The TinyDB migration is now **complete with comprehensive optimization**:
 - **get_calendar**: Get calendar for specified year/month in HTML and text formats
 - **get_day_of_week**: Get weekday name for a date in ISO format (YYYY-MM-DD)
 
-## Setup Instructions
+## Installation
+
+### Option 1: Direct Installation from GitHub (Recommended)
+
+Install the package directly from GitHub using pip:
+
+```bash
+# Install the latest version
+pip install git+https://github.com/TobiSan5/first-mcp.git
+
+# Or install a specific version/branch
+pip install git+https://github.com/TobiSan5/first-mcp.git@main
+```
+
+### Option 2: Clone and Install Locally
+
+```bash
+# Clone the repository
+git clone https://github.com/TobiSan5/first-mcp.git
+cd first-mcp
+
+# Install in development mode
+pip install -e .
+
+# Or install normally
+pip install .
+```
+
+### Environment Setup
+
+After installation, you'll need to configure environment variables and Claude Desktop:
+
+#### 1. Set Environment Variables
+
+Create or update your environment variables:
+
+**On Windows:**
+```cmd
+# Memory storage location (recommended)
+setx FIRST_MCP_DATA_PATH "%APPDATA%\FirstMCP"
+
+# Workspace file storage location
+setx FIRST_MCP_WORKSPACE_PATH "%USERPROFILE%\Documents\ClaudeWorkspace"
+
+# API keys (optional - for weather functionality)
+setx OPENWEATHERMAPORG_API_KEY "your_openweather_api_key_here"
+setx GOOGLE_API_KEY "your_google_ai_api_key_here"
+```
+
+**On macOS/Linux:**
+```bash
+# Add to your ~/.bashrc, ~/.zshrc, or ~/.profile
+export FIRST_MCP_DATA_PATH="$HOME/.local/share/FirstMCP"
+export FIRST_MCP_WORKSPACE_PATH="$HOME/Documents/ClaudeWorkspace"
+export OPENWEATHERMAPORG_API_KEY="your_openweather_api_key_here"
+export GOOGLE_API_KEY="your_google_ai_api_key_here"
+```
+
+#### 2. Configure Claude Desktop
+
+##### Find Claude Desktop Config Location:
+
+**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+**Linux:** `~/.config/Claude/claude_desktop_config.json`
+
+##### Configure the MCP Server:
+
+1. Copy the example configuration:
+   ```bash
+   # Navigate to your Claude Desktop config directory
+   # Copy the example file from the repository
+   cp claude_desktop_config.example.json claude_desktop_config.json
+   ```
+
+2. Edit `claude_desktop_config.json` with your paths:
+   ```json
+   {
+     "mcpServers": {
+       "first-mcp": {
+         "command": "python",
+         "args": ["-m", "first_mcp.server"],
+         "env": {
+           "FIRST_MCP_DATA_PATH": "/path/to/your/data/directory",
+           "FIRST_MCP_WORKSPACE_PATH": "/path/to/your/workspace/directory"
+         }
+       }
+     }
+   }
+   ```
+
+   **Alternative using direct script path:**
+   ```json
+   {
+     "mcpServers": {
+       "first-mcp": {
+         "command": "python",
+         "args": ["/full/path/to/first-mcp/server.py"],
+         "env": {
+           "FIRST_MCP_DATA_PATH": "/path/to/your/data/directory",
+           "FIRST_MCP_WORKSPACE_PATH": "/path/to/your/workspace/directory"
+         }
+       }
+     }
+   }
+   ```
+
+#### 3. Verify Installation
+
+1. **Test the package import:**
+   ```bash
+   python -c "import first_mcp; print('First MCP package installed successfully')"
+   ```
+
+2. **Test the server:**
+   ```bash
+   python -m first_mcp.server --debug
+   ```
+
+3. **Restart Claude Desktop** completely (quit and relaunch)
+
+4. **Test in Claude Desktop:**
+   - Start a new conversation
+   - Try: "What memory tools do you have available?"
+   - The response should list the TinyDB memory tools
+
+### Troubleshooting
+
+#### Common Issues:
+
+1. **Import Error:** Ensure the package is installed in the correct Python environment that Claude Desktop is using
+2. **Permission Error:** Make sure the data and workspace directories exist and are writable
+3. **Server Not Found:** Verify the `command` and `args` paths in `claude_desktop_config.json`
+4. **Environment Variables:** Restart your shell/IDE after setting environment variables
+
+#### Debug Mode:
+
+Run the server in debug mode to test functionality:
+```bash
+python server.py --debug
+```
+
+This will test all imports, database connections, and core functionality.
+
+## Setup Instructions (Legacy/Development)
 
 ### 1. Create the Mamba Environment
 

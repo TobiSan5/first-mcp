@@ -1,3 +1,6 @@
+# Archieved code
+_archieved_src/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -49,6 +52,7 @@ claude_desktop_config.json
 
 # Claude Code generated files
 CLAUDE.md
+.claude/
 
 # Legacy memory system data files (not needed in repository)
 memory_store.json

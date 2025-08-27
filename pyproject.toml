@@ -38,6 +38,9 @@ dev = [
     "flake8>=6.0.0",
     "mypy>=1.0.0",
 ]
+workspace = [
+    # Workspace extension for file management
+]
 weather = [
     "requests>=2.31.0",
 ]
@@ -52,10 +55,10 @@ Issues = "https://github.com/TobiSan5/first-mcp/issues"
 Documentation = "https://github.com/TobiSan5/first-mcp#readme"
 
 [project.scripts]
-first-mcp = "first_mcp.server:main"
-first-mcp-memory = "first_mcp.memory_server:main"  
-first-mcp-workspace = "first_mcp.workspace_server:main"
-first-mcp-weather = "first_mcp.weather_server:main"
+# Core memory-first server (default installation)
+first-mcp = "first_mcp.core_server:main"
+# Legacy compatibility  
+first-mcp-legacy = "first_mcp.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

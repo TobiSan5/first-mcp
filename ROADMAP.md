@@ -38,11 +38,11 @@ Transform this MCP server from a monolithic tool collection into a modular, dist
 - [ ] GitHub Actions for testing and release automation
 - [ ] Semantic versioning implementation
 
-#### 2.2 - Server Modularization  
-- [ ] **Core Server** (`first_mcp_server.py`) - Basic utilities, calculator, calendar
-- [ ] **Memory Server** (`memory_server.py`) - Dedicated memory management
-- [ ] **Workspace Server** (`workspace_server.py`) - File management and workspace tools
-- [ ] **Weather Server** (`weather_server.py`) - Weather and geocoding services
+#### 2.2 - Memory-First Modular Architecture  
+- [ ] **Core Package** (`first-mcp`) - Memory system + basic utilities as foundation
+- [ ] **Workspace Extension** (`first-mcp[workspace]`) - Optional file management features
+- [ ] **Weather Extension** (`first-mcp[weather]`) - Optional weather and geocoding services
+- [ ] **Complete Package** (`first-mcp[all]`) - All extensions bundled
 
 #### 2.3 - Enhanced Memory System
 - [ ] Evaluate memory system spec v0.2 recommendations
@@ -51,10 +51,38 @@ Transform this MCP server from a monolithic tool collection into a modular, dist
 - [ ] Add semantic intelligence where feasible without heavy ML deps
 
 #### 2.4 - Package Distribution Preparation
-- [ ] Modular installation (`pip install first-mcp[memory,workspace,weather]`)
+- [ ] Memory-first installation (`pip install first-mcp` = core memory system)
+- [ ] Optional extensions (`pip install first-mcp[workspace,weather,all]`)
 - [ ] Configuration management system
 - [ ] Docker support for easy deployment
-- [ ] Documentation overhaul for modular architecture
+- [ ] Documentation overhaul for memory-first architecture
+
+## Memory-First Architecture Philosophy
+
+### Core Vision: Memory as Foundation
+The first-mcp package is built around **intelligent memory management** as its core value proposition:
+
+```bash
+# Default installation - Memory system with basic utilities
+pip install first-mcp
+
+# Optional extensions for specialized use cases  
+pip install first-mcp[workspace]    # + File management
+pip install first-mcp[weather]      # + Weather services
+pip install first-mcp[all]         # + All extensions
+```
+
+### Package Structure
+- **Core Memory System**: Always included - intelligent storage, retrieval, categorization
+- **Basic Utilities**: Calculator, calendar, system info (lightweight foundation)
+- **Optional Extensions**: Workspace and weather as separate modules
+- **Unified Configuration**: Single configuration approach across all modules
+
+### User Experience
+- **Immediate Value**: `pip install first-mcp` gives users powerful memory management
+- **Progressive Enhancement**: Add features as needed without bloat
+- **Consistent Interface**: All extensions integrate seamlessly with memory system
+- **Cloud-Ready**: Designed for both local and cloud deployment scenarios
 
 ## Version 3.0 - Advanced Features 🔮
 
