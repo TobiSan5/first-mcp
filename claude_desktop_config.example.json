@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "first-mcp": {
+      "command": "mamba",
+      "args": ["run", "-n", "fast-mcp", "python", "<absolute path to server.py here>"],
+      "env": {
+        "PYTHONPATH": "<path to folder containing server.py here>",
+      }
+    }
+  }
+}
