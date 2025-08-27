@@ -49,3 +49,14 @@ claude_desktop_config.json
 
 # Claude Code generated files
 CLAUDE.md
+
+# Legacy memory system data files (not needed in repository)
+memory_store.json
+memory_tags.json
+memory_categories.json
+
+# Workspace metadata (auto-generated)
+.workspace_metadata.json
+
+# TinyDB database files (created at runtime)
+tinydb_*.json
