@@ -2,7 +2,41 @@
 
 A comprehensive MCP server for Claude Desktop featuring high-performance TinyDB memory management, workspace file I/O, weather data, and calendar functionality.
 
-## 🆕 Recent Updates: Memory System Extracted as Core Package
+## 🚀 Version 2.0 Development: PyPI-Ready Distribution
+
+**Latest Updates**: Enhanced PyPI packaging and modular architecture
+
+- **PyPI Distribution**: Professional package structure with `pyproject.toml` and wheel building
+- **Multi-platform CI/CD**: Automated testing on Ubuntu, Windows, and macOS
+- **CLI Entry Points**: Standalone tools (`first-mcp-memory`, `first-mcp-workspace`)
+- **Modular Installation**: Core package with optional extensions
+- **Quality Pipeline**: Automated code formatting, linting, type checking, and security scanning
+
+## 📦 Installation Options
+
+### Option 1: PyPI Distribution (Coming Soon)
+
+```bash
+# Core package with memory system
+pip install first-mcp
+
+# With optional extensions
+pip install first-mcp[workspace]  # + File management
+pip install first-mcp[weather]    # + Weather services
+pip install first-mcp[all]       # + All extensions
+```
+
+### Option 2: GitHub Installation (Current)
+
+```bash
+# Install from specific branch (v2.0 features)
+pip install git+https://github.com/TobiSan5/first-mcp.git@feature/v2-pypi-packaging
+
+# Install from main branch (stable)
+pip install git+https://github.com/TobiSan5/first-mcp.git
+```
+
+## 🆕 Memory System Extracted as Core Package
 
 The memory system has been **extracted into a reusable core package**:
 

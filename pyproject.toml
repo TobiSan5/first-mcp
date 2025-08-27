@@ -11,23 +11,31 @@ authors = [
 description = "A comprehensive MCP (Model Context Protocol) server with memory, workspace, weather, and utility tools"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Communications :: Chat",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Database",
+    "Topic :: System :: Shells",
+    "Framework :: FastAPI",
 ]
 keywords = ["mcp", "claude", "ai", "memory", "weather", "workspace", "tools"]
 dependencies = [
     "fastmcp>=2.11.0",
     "tinydb>=4.8.0",
     "requests>=2.31.0",
+    "typing-extensions>=4.0.0; python_version<'3.13'",
+    "google-genai>=0.2.0",
+    "numpy>=1.24.0",
 ]
 
 [project.optional-dependencies]
@@ -35,17 +43,31 @@ dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
     "black>=23.0.0",
-    "flake8>=6.0.0",
+    "ruff>=0.1.0",
     "mypy>=1.0.0",
+    "bandit>=1.7.0",
+    "safety>=2.0.0",
+    "build>=0.10.0",
+    "twine>=4.0.0",
 ]
 workspace = [
-    # Workspace extension for file management
+    # Additional workspace management tools
+    "watchdog>=3.0.0",
+    "pathspec>=0.11.0",
 ]
 weather = [
     "requests>=2.31.0",
+    "python-dateutil>=2.8.0",
+]
+memory = [
+    "tinydb>=4.8.0",
+    "python-dateutil>=2.8.0",
 ]
 all = [
     "requests>=2.31.0",
+    "watchdog>=3.0.0",
+    "pathspec>=0.11.0",
+    "python-dateutil>=2.8.0",
 ]
 
 [project.urls]
@@ -55,10 +77,11 @@ Issues = "https://github.com/TobiSan5/first-mcp/issues"
 Documentation = "https://github.com/TobiSan5/first-mcp#readme"
 
 [project.scripts]
-# Core memory-first server (default installation)
-first-mcp = "first_mcp.core_server:main"
-# Legacy compatibility  
-first-mcp-legacy = "first_mcp.server:main"
+# Main MCP server entry point
+first-mcp = "first_mcp.server:main"
+# Future modular entry points
+first-mcp-memory = "first_mcp.memory.cli:main"
+first-mcp-workspace = "first_mcp.workspace.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
