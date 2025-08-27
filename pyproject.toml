@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "first-mcp"
+version = "1.0.0"
+authors = [
+    {name = "Torbjørn Wikestad", email = "torbjorn.wikestad@gmail.com"}
+]
+description = "A comprehensive MCP (Model Context Protocol) server with memory, workspace, weather, and utility tools"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.13"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Communications :: Chat",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+keywords = ["mcp", "claude", "ai", "memory", "weather", "workspace", "tools"]
+dependencies = [
+    "fastmcp>=2.11.0",
+    "tinydb>=4.8.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+]
+weather = [
+    "requests>=2.31.0",
+]
+all = [
+    "requests>=2.31.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/TobiSan5/first-mcp"
+Repository = "https://github.com/TobiSan5/first-mcp.git"
+Issues = "https://github.com/TobiSan5/first-mcp/issues"
+Documentation = "https://github.com/TobiSan5/first-mcp#readme"
+
+[project.scripts]
+first-mcp = "first_mcp.server:main"
+first-mcp-memory = "first_mcp.memory_server:main"  
+first-mcp-workspace = "first_mcp.workspace_server:main"
+first-mcp-weather = "first_mcp.weather_server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"first_mcp" = ["*.json", "*.md"]
+
+[tool.black]
+line-length = 100
+target-version = ['py313']
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "--cov=src/first_mcp --cov-report=html --cov-report=term-missing"
