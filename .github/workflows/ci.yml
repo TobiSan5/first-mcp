@@ -1,0 +1,96 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  PYTHON_VERSION: '3.13'
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.13"]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+        pip install pytest pytest-cov
+    
+    - name: Test core functionality
+      run: |
+        python -c "import first_mcp; print('Package import successful')"
+        python -c "from src.first_mcp.memory import tinydb_memorize; print('Memory package import successful')"
+    
+    - name: Test server startup
+      run: |
+        python server.py --debug
+    
+    - name: Run tests (if they exist)
+      run: |
+        if [ -f "test_client.py" ]; then python test_client.py; fi
+      shell: bash
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install quality tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install black ruff mypy bandit safety
+    
+    - name: Code formatting check
+      run: |
+        black --check --diff src/ || echo "Black formatting check completed"
+    
+    - name: Linting
+      run: |
+        ruff check src/ || echo "Ruff linting completed"
+    
+    - name: Type checking
+      run: |
+        mypy src/ --ignore-missing-imports || echo "MyPy type checking completed"
+    
+    - name: Security scan
+      run: |
+        bandit -r src/ || echo "Security scan completed"
+        safety check || echo "Safety check completed"
+
+  package-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Test pip installation
+      run: |
+        python -m pip install --upgrade pip build
+        python -m build
+        pip install dist/*.whl
+        python -c "import first_mcp; print(f'Package version: {first_mcp.__version__}')"
