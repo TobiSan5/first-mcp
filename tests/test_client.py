@@ -12,10 +12,14 @@ async def test_tinydb_tools():
     
     try:
         # Import server to get the FastMCP instance
-        import server
+        import sys
+        import os
+        # Add src to path to import first_mcp package
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+        from first_mcp import server_impl
         
         # Create client connected directly to the server instance
-        client = Client(server.mcp)
+        client = Client(server_impl.mcp)
         
         async with client:
             print("✓ Connected to MCP server")

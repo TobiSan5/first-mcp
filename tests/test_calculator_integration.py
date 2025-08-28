@@ -2,7 +2,11 @@
 Simple test of calculator integration without full MCP server.
 """
 
-from calculate import Calculator
+import sys
+import os
+# Add src to path to import first_mcp package  
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+from first_mcp.calculate import Calculator
 
 def test_calculator_tool():
     """Test the calculator tool functionality."""

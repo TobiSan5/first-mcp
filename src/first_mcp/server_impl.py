@@ -2203,10 +2203,10 @@ if __name__ == "__main__":
             from fastmcp import FastMCP
             print("✓ FastMCP import OK", file=sys.stderr)
             
-            from weather import WeatherAPI, GeocodingAPI
+            from .weather import WeatherAPI, GeocodingAPI
             print("✓ Weather imports OK", file=sys.stderr)
             
-            from fileio import WorkspaceManager
+            from .fileio import WorkspaceManager
             print("✓ WorkspaceManager import OK", file=sys.stderr)
             
             print("Testing manager initialization...", file=sys.stderr)

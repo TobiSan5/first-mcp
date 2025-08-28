@@ -64,3 +64,6 @@ memory_categories.json
 
 # TinyDB database files (created at runtime)
 tinydb_*.json
+
+# Archive scripts (throwaway/migration scripts)
+_archive_scripts/

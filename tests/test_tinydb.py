@@ -115,7 +115,11 @@ def test_server_tinydb_functions():
     
     try:
         # Import server functions
-        import server
+        import sys
+        import os
+        # Add src to path to import first_mcp package
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+        from first_mcp import server_impl as server
         
         # Test tinydb_memorize
         print("Test 1: Testing tinydb_memorize function...")

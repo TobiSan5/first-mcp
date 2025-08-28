@@ -2,7 +2,11 @@
 Test both calculator integrations (math and timedelta).
 """
 
-from calculate import Calculator, TimedeltaCalculator
+import sys
+import os
+# Add src to path to import first_mcp package
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+from first_mcp.calculate import Calculator, TimedeltaCalculator
 
 def test_both_calculators():
     """Test both calculator tools as they would be used in MCP server."""

@@ -2,7 +2,11 @@
 Test the timedelta calculator functionality.
 """
 
-from calculate import TimedeltaCalculator
+import sys
+import os
+# Add src to path to import first_mcp package  
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+from first_mcp.calculate import TimedeltaCalculator
 
 def test_timedelta_calculator():
     """Test the timedelta calculator functionality."""

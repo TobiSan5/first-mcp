@@ -12,7 +12,11 @@ async def demonstrate_search_limitations():
     
     try:
         # Import server to get the FastMCP instance
-        import server
+        import sys
+        import os
+        # Add src to path to import first_mcp package
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+        from first_mcp import server_impl as server
         
         # Create client connected directly to the server instance
         client = Client(server.mcp)
