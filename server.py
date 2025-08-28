@@ -11,6 +11,11 @@ from weather import WeatherAPI, GeocodingAPI
 from fileio import WorkspaceManager
 from calculate import Calculator, TimedeltaCalculator
 
+# Always import TinyDB components for fallback functions
+from tinydb import TinyDB, Query
+from tinydb.storages import JSONStorage
+from tinydb.middlewares import CachingMiddleware
+
 # Import memory system components
 try:
     # Try to import from the memory package if available
@@ -28,9 +33,6 @@ try:
     MEMORY_PACKAGE_AVAILABLE = True
 except ImportError:
     # Fallback: use legacy inline implementation
-    from tinydb import TinyDB, Query
-    from tinydb.storages import JSONStorage
-    from tinydb.middlewares import CachingMiddleware
     MEMORY_PACKAGE_AVAILABLE = False
 
 # Create the MCP server
@@ -145,9 +147,9 @@ if not MEMORY_PACKAGE_AVAILABLE:
             # Category doesn't exist
             error_msg = f"Category '{category}' not found. Available categories: {', '.join(existing_cats)}"
             return False, error_msg, existing_cats
-        
-    except Exception as e:
-        return False, f"Error checking categories: {str(e)}", []
+            
+        except Exception as e:
+            return False, f"Error checking categories: {str(e)}", []
 
 @mcp.tool()
 def hello_world(name: str = "World") -> str:
@@ -856,7 +858,7 @@ def tinydb_search_memories(query: str = "", tags: str = "", category: str = "",
             
             # Validate category exists if provided
             if category:
-                category_exists, category_error, existing_categories = _check_category_exists(category)
+                category_exists, category_error, existing_categories = check_category_exists(category)
                 if not category_exists:
                     memory_db.close()
                     return {
@@ -871,7 +873,7 @@ def tinydb_search_memories(query: str = "", tags: str = "", category: str = "",
                 all_expanded = set(input_tags)  # Start with original tags
                 
                 for tag in input_tags:
-                    similar_tags = _find_similar_tags_internal(tag, limit=3, min_similarity=0.4)
+                    similar_tags = find_similar_tags_internal(tag, limit=3, min_similarity=0.4)
                     all_expanded.update(similar_tags)
                 
                 expanded_tags = list(all_expanded)
