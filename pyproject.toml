@@ -55,9 +55,9 @@ Issues = "https://github.com/TobiSan5/first-mcp/issues"
 Documentation = "https://github.com/TobiSan5/first-mcp#readme"
 
 [project.scripts]
-# Core memory-first server (default installation)
-first-mcp = "first_mcp.core_server:main"
-# Legacy compatibility  
+# Main MCP server entry point
+first-mcp = "first_mcp.server:main"
+# Legacy compatibility (same as main for now)
 first-mcp-legacy = "first_mcp.server:main"
 
 [tool.setuptools.packages.find]
