@@ -828,6 +828,8 @@ def tinydb_search_memories(query: str = "", tags: str = "", category: str = "",
     """
     Search memorized information using TinyDB with advanced filtering and semantic tag awareness.
     
+    RECOMMENDED SESSION START: Search for tags='session-start' to load behavioral preferences and workflows.
+    
     SEMANTIC ENHANCEMENT: When semantic_search=True (default), this tool automatically:
     - Finds similar existing tags if provided tags don't match exactly
     - Returns helpful error with available categories if invalid category provided
@@ -842,6 +844,10 @@ def tinydb_search_memories(query: str = "", tags: str = "", category: str = "",
         
     Returns:
         Dictionary with search results sorted by importance, or error with available categories if invalid category
+        
+    Examples:
+        - Session initialization: {"tags": "session-start"}
+        - General search: {"query": "python frameworks", "tags": "programming", "limit": 5}
     """
     try:
         from datetime import datetime
@@ -2182,11 +2188,88 @@ def tinydb_get_database_info(db_name: str) -> Dict[str, Any]:
     except Exception as e:
         return {"error": str(e)}
 
+def check_and_initialize_fresh_install():
+    """Check if this is a fresh install and initialize with session-start preferences."""
+    try:
+        import uuid
+        from datetime import datetime
+        memory_db = get_memory_tinydb()
+        memories_table = memory_db.table('memories')
+        
+        # Check if database is empty (fresh install)
+        if len(memories_table.all()) == 0:
+            print("✓ Fresh installation detected - initializing with session preferences", file=sys.stderr)
+            
+            session_guide = """SESSION INITIALIZATION GUIDE - Essential for optimal MCP server usage:
+
+1. SEARCH SESSION PREFERENCES: Use tinydb_search_memories with tags='session-start' to load your behavioral preferences
+2. LOAD WORKSPACE CONTEXT: Read key workspace files (like general-instructions.md) to understand current context  
+3. SEMANTIC SEARCH: When searching memories, use English search terms for best results regardless of conversation language
+4. TOOL-FIRST APPROACH: Proactively use available MCP tools rather than providing general responses
+5. WORKFLOW ADHERENCE: Follow established patterns from memory rather than improvising
+
+CRITICAL SEARCH TIP: Memory database content is stored in English. Always use English search terms for optimal results, even when conversing in Norwegian or other languages.
+
+This memory serves as your initialization checklist. Search for 'session-start' tagged memories at the beginning of each session for personalized assistant behavior."""
+            
+            # Store the initialization guide using raw function call
+            memory_id = str(uuid.uuid4())
+            memory_entry = {
+                "id": memory_id,
+                "content": session_guide,
+                "tags": "session-start,initialization,workflow",
+                "category": "preferences",
+                "importance": 5,
+                "created_at": datetime.now().isoformat(),
+                "expires_at": "",
+                "is_active": True
+            }
+            
+            # Insert directly into database
+            doc_id = memories_table.insert(memory_entry)
+            
+            # Also update tag database
+            tag_list = ["session-start", "initialization", "workflow"]
+            tags_db = get_tags_tinydb()
+            tags_table = tags_db.table('tags')
+            
+            Tag = Query()
+            for tag in tag_list:
+                if not tags_table.search(Tag.tag == tag):
+                    tags_table.insert({
+                        "tag": tag,
+                        "count": 1,
+                        "last_used": datetime.now().isoformat()
+                    })
+                else:
+                    existing_count = tags_table.search(Tag.tag == tag)[0]["count"]
+                    tags_table.update(
+                        {"count": existing_count + 1,
+                         "last_used": datetime.now().isoformat()},
+                        Tag.tag == tag
+                    )
+            
+            tags_db.close()
+            result = {"success": True, "memory_id": memory_id}
+            
+            if result.get("success"):
+                print("✓ Session initialization guide stored successfully", file=sys.stderr)
+            else:
+                print("✗ Failed to store session guide:", result.get("error"), file=sys.stderr)
+        
+        memory_db.close()
+        
+    except Exception as e:
+        print(f"✗ Fresh install initialization failed: {e}", file=sys.stderr)
+
 def main():
     """Main entry point for the MCP server."""
     print("Starting First MCP Server...", file=sys.stderr)
     print(f"Python executable: {sys.executable}", file=sys.stderr)
     print(f"Current directory: {os.getcwd()}", file=sys.stderr)
+    
+    # Check for fresh install and initialize if needed
+    check_and_initialize_fresh_install()
     
     # Run the MCP server
     mcp.run(transport="stdio")

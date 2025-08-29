@@ -130,9 +130,9 @@ export OPENWEATHERMAPORG_API_KEY="your_openweather_api_key_here"
 export GOOGLE_API_KEY="your_google_ai_api_key_here"
 ```
 
-#### 2. Configure Claude Desktop
+#### 2. Configure MCP Client
 
-##### Find Claude Desktop Config Location:
+##### Claude Desktop Config Location:
 
 **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
 **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
@@ -140,44 +140,83 @@ export GOOGLE_API_KEY="your_google_ai_api_key_here"
 
 ##### Configure the MCP Server:
 
-1. Copy the example configuration:
-   ```bash
-   # Navigate to your Claude Desktop config directory
-   # Copy the example file from the repository
-   cp claude_desktop_config.example.json claude_desktop_config.json
-   ```
+Open the `claude_desktop_config.json` file in a text editor (create it if it doesn't exist) and add this configuration:
 
-2. Edit `claude_desktop_config.json` with your paths:
-   ```json
-   {
-     "mcpServers": {
-       "first-mcp": {
-         "command": "python",
-         "args": ["-m", "first_mcp.server"],
-         "env": {
-           "FIRST_MCP_DATA_PATH": "/path/to/your/data/directory",
-           "FIRST_MCP_WORKSPACE_PATH": "/path/to/your/workspace/directory"
-         }
-       }
-     }
-   }
-   ```
+**Conda/Mamba Environment (Recommended):**
+```json
+{
+  "mcpServers": {
+    "first-mcp": {
+      "command": "C:\\ProgramData\\miniforge3\\Library\\bin\\mamba.exe",
+      "args": ["run", "-n", "your-env-name", "first-mcp"],
+      "env": {
+        "FIRST_MCP_DATA_PATH": "C:\\Users\\YourUsername\\AppData\\Roaming\\FirstMCP",
+        "FIRST_MCP_WORKSPACE_PATH": "C:\\Users\\YourUsername\\Documents\\ClaudeWorkspace",
+        "OPENWEATHERMAPORG_API_KEY": "your_openweather_api_key_here",
+        "GOOGLE_API_KEY": "your_google_ai_api_key_here"
+      }
+    }
+  }
+}
+```
 
-   **Alternative using direct script path:**
-   ```json
-   {
-     "mcpServers": {
-       "first-mcp": {
-         "command": "python",
-         "args": ["/full/path/to/first-mcp/server.py"],
-         "env": {
-           "FIRST_MCP_DATA_PATH": "/path/to/your/data/directory",
-           "FIRST_MCP_WORKSPACE_PATH": "/path/to/your/workspace/directory"
-         }
-       }
-     }
-   }
-   ```
+**System Python:**
+```json
+{
+  "mcpServers": {
+    "first-mcp": {
+      "command": "python",
+      "args": ["-c", "import subprocess; subprocess.run(['first-mcp'])"],
+      "env": {
+        "FIRST_MCP_DATA_PATH": "C:\\Users\\YourUsername\\AppData\\Roaming\\FirstMCP",
+        "FIRST_MCP_WORKSPACE_PATH": "C:\\Users\\YourUsername\\Documents\\ClaudeWorkspace",
+        "OPENWEATHERMAPORG_API_KEY": "your_openweather_api_key_here", 
+        "GOOGLE_API_KEY": "your_google_ai_api_key_here"
+      }
+    }
+  }
+}
+```
+
+**Virtual Environment (Windows):**
+```json
+{
+  "mcpServers": {
+    "first-mcp": {
+      "command": "C:\\path\\to\\your\\venv\\Scripts\\python.exe",
+      "args": ["-c", "import subprocess; subprocess.run(['first-mcp'])"],
+      "env": {
+        "FIRST_MCP_DATA_PATH": "C:\\Users\\YourUsername\\AppData\\Roaming\\FirstMCP",
+        "FIRST_MCP_WORKSPACE_PATH": "C:\\Users\\YourUsername\\Documents\\ClaudeWorkspace",
+        "OPENWEATHERMAPORG_API_KEY": "your_openweather_api_key_here",
+        "GOOGLE_API_KEY": "your_google_ai_api_key_here"
+      }
+    }
+  }
+}
+```
+
+**macOS/Linux:**
+```json
+{
+  "mcpServers": {
+    "first-mcp": {
+      "command": "/usr/bin/python3",
+      "args": ["-c", "import subprocess; subprocess.run(['first-mcp'])"],
+      "env": {
+        "FIRST_MCP_DATA_PATH": "/Users/YourUsername/.local/share/FirstMCP",
+        "FIRST_MCP_WORKSPACE_PATH": "/Users/YourUsername/Documents/ClaudeWorkspace",
+        "OPENWEATHERMAPORG_API_KEY": "your_openweather_api_key_here",
+        "GOOGLE_API_KEY": "your_google_ai_api_key_here"
+      }
+    }
+  }
+}
+```
+
+Replace `your-env-name` with your conda environment name and `YourUsername` with your actual username.
+
+**MCP Compatibility**: This server works with any MCP-compatible application, including Claude Desktop, Cursor, VSCode, and other tools that support the Model Context Protocol.
 
 #### 3. Verify Installation
 

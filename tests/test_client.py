@@ -4,6 +4,9 @@ Test client for TinyDB integration using FastMCP client.
 """
 
 import asyncio
+import os
+import tempfile
+import shutil
 from fastmcp import Client
 
 async def test_tinydb_tools():
@@ -207,5 +210,93 @@ async def main():
         print("\n❌ Test failed.")
         exit(1)
 
+async def test_fresh_install_initialization():
+    """Test that fresh installation automatically creates session-start memory."""
+    print("\n=== Testing Fresh Install Auto-Initialization ===")
+    
+    # Create temporary directory for test databases
+    test_data_dir = os.path.join(os.path.dirname(__file__), 'test_data')
+    if os.path.exists(test_data_dir):
+        shutil.rmtree(test_data_dir)
+    os.makedirs(test_data_dir)
+    
+    # Temporarily override the data path environment variable
+    original_data_path = os.environ.get('FIRST_MCP_DATA_PATH')
+    os.environ['FIRST_MCP_DATA_PATH'] = test_data_dir
+    
+    try:
+        # Import server to get the FastMCP instance with fresh data path
+        import sys
+        # Add src to path to import first_mcp package
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+        
+        # Force reload of server_impl to pick up new data path
+        if 'first_mcp.server_impl' in sys.modules:
+            del sys.modules['first_mcp.server_impl']
+        from first_mcp import server_impl
+        
+        # Manually trigger initialization since we're bypassing main()
+        server_impl.check_and_initialize_fresh_install()
+        
+        # Create client connected directly to the server instance
+        client = Client(server_impl.mcp)
+        
+        async with client:
+            print("✓ Connected to MCP server with fresh data directory")
+            
+            # Search for session-start memories (should be auto-created)
+            result = await client.call_tool("tinydb_search_memories", {
+                "tags": "session-start",
+                "limit": 5
+            })
+            
+            data = result.data
+            if data.get("success"):
+                memories = data.get("memories", [])
+                if memories:
+                    session_memory = memories[0]
+                    print(f"✅ Auto-initialization successful!")
+                    print(f"✅ Found session-start memory with ID: {session_memory.get('id')}")
+                    print(f"✅ Category: {session_memory.get('category')}")
+                    print(f"✅ Importance: {session_memory.get('importance')}")
+                    
+                    # Verify content includes key initialization points
+                    content = session_memory.get('content', '')
+                    if 'SESSION INITIALIZATION GUIDE' in content and 'session-start' in content:
+                        print("✅ Session memory contains proper initialization guide")
+                        return True
+                    else:
+                        print("❌ Session memory missing expected initialization content")
+                        return False
+                else:
+                    print("❌ No session-start memories found after initialization")
+                    return False
+            else:
+                print(f"❌ Failed to search for session memories: {data.get('error')}")
+                return False
+                
+    except Exception as e:
+        print(f"❌ Fresh install test failed: {e}")
+        return False
+        
+    finally:
+        # Restore original data path
+        if original_data_path:
+            os.environ['FIRST_MCP_DATA_PATH'] = original_data_path
+        elif 'FIRST_MCP_DATA_PATH' in os.environ:
+            del os.environ['FIRST_MCP_DATA_PATH']
+        
+        # Clean up test directory
+        if os.path.exists(test_data_dir):
+            shutil.rmtree(test_data_dir)
+
 if __name__ == "__main__":
+    # Run main test
     asyncio.run(main())
+    
+    # Run fresh install test
+    fresh_success = asyncio.run(test_fresh_install_initialization())
+    if not fresh_success:
+        print("❌ Fresh install test failed!")
+        exit(1)
+    print("🎉 All tests passed!")
