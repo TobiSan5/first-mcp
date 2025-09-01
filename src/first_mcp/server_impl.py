@@ -35,6 +35,35 @@ except ImportError:
     # Fallback: use legacy inline implementation
     MEMORY_PACKAGE_AVAILABLE = False
 
+# Server timestamp helper function
+def add_server_timestamp(response: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Add server timestamp to any tool response for time/date awareness.
+    
+    Args:
+        response: Tool response dictionary
+        
+    Returns:
+        Response dictionary with added server_timestamp and server_timezone
+    """
+    from datetime import datetime
+    import time
+    
+    if not isinstance(response, dict):
+        # If response is not a dict, wrap it
+        response = {"data": response}
+    
+    # Add timestamp in ISO format with timezone info
+    response["server_timestamp"] = datetime.now().isoformat()
+    
+    # Add timezone name if available
+    try:
+        response["server_timezone"] = time.tzname[time.daylight]
+    except (AttributeError, IndexError):
+        response["server_timezone"] = "local"
+    
+    return response
+
 # Create the MCP server
 mcp = FastMCP(name="First MCP Server")
 
@@ -152,19 +181,6 @@ if not MEMORY_PACKAGE_AVAILABLE:
             return False, f"Error checking categories: {str(e)}", []
 
 @mcp.tool()
-def hello_world(name: str = "World") -> str:
-    """
-    A simple greeting tool.
-    
-    Args:
-        name: The name to greet (default: "World")
-    
-    Returns:
-        A friendly greeting message
-    """
-    return f"Hello, {name}! This is your first MCP server."
-
-@mcp.tool()
 def get_system_info() -> Dict[str, Any]:
     """
     Get basic system information including memory storage configuration.
@@ -180,7 +196,7 @@ def get_system_info() -> Dict[str, Any]:
     # Get workspace path from environment or current directory
     workspace_path = os.getenv('FIRST_MCP_WORKSPACE_PATH', os.getcwd())
     
-    return {
+    result = {
         "python_version": platform.python_version(),
         "platform": platform.platform(),
         "current_directory": os.getcwd(),
@@ -190,9 +206,10 @@ def get_system_info() -> Dict[str, Any]:
         "workspace_path": workspace_path,
         "workspace_configured": os.getenv('FIRST_MCP_WORKSPACE_PATH') is not None
     }
+    return add_server_timestamp(result)
 
 @mcp.tool()
-def count_words(text: str) -> Dict[str, int]:
+def count_words(text: str) -> Dict[str, Any]:
     """
     Count words and characters in a text.
     
@@ -203,28 +220,19 @@ def count_words(text: str) -> Dict[str, int]:
         Dictionary with word count, character count, and line count
     """
     if not text:
-        return {"words": 0, "characters": 0, "lines": 0}
+        result = {"words": 0, "characters": 0, "lines": 0}
+        return add_server_timestamp(result)
     
     words = len(text.split())
     characters = len(text)
     lines = len(text.splitlines())
     
-    return {
+    result = {
         "words": words,
         "characters": characters,
         "lines": lines
     }
-
-@mcp.tool()
-def now() -> str:
-    """
-    Get the current date and time in ISO format with timezone info.
-    
-    Returns:
-        Current datetime as ISO-formatted string with timezone
-    """
-    from datetime import datetime
-    return datetime.now().astimezone().isoformat()
+    return add_server_timestamp(result)
 
 @mcp.tool()
 def list_files(directory: str = ".") -> List[str]:
@@ -275,13 +283,15 @@ def calculate(expression: str) -> Dict[str, Any]:
         calculate("-5 + 3")          -> {"success": True, "result": -2}
     """
     try:
-        return calculator.calculate(expression)
+        result = calculator.calculate(expression)
+        return add_server_timestamp(result)
     except Exception as e:
-        return {
+        result = {
             "success": False,
             "error": f"Calculator error: {str(e)}",
             "expression": expression
         }
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def calculate_time_difference(datetime1: str, datetime2: str) -> Dict[str, Any]:
@@ -314,14 +324,16 @@ def calculate_time_difference(datetime1: str, datetime2: str) -> Dict[str, Any]:
         -> "3 days"
     """
     try:
-        return timedelta_calculator.calculate_timedelta(datetime1, datetime2)
+        result = timedelta_calculator.calculate_timedelta(datetime1, datetime2)
+        return add_server_timestamp(result)
     except Exception as e:
-        return {
+        result = {
             "success": False,
             "error": f"Timedelta calculator error: {str(e)}",
             "datetime1": datetime1,
             "datetime2": datetime2
         }
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def get_geocode(location: str, limit: int = 3) -> Dict[str, Any]:
@@ -340,7 +352,8 @@ def get_geocode(location: str, limit: int = 3) -> Dict[str, Any]:
         results = geocoding.geocode(location, limit)
         
         if not results:
-            return {"error": f"No results found for location: {location}"}
+            result = {"error": f"No results found for location: {location}"}
+            return add_server_timestamp(result)
         
         formatted_results = []
         for result in results:
@@ -353,14 +366,16 @@ def get_geocode(location: str, limit: int = 3) -> Dict[str, Any]:
                 "local_names": result.get('local_names', {})
             })
         
-        return {
+        result = {
             "query": location,
             "results": formatted_results,
             "count": len(formatted_results)
         }
+        return add_server_timestamp(result)
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def get_weather(latitude: float, longitude: float) -> Dict[str, Any]:
@@ -376,10 +391,12 @@ def get_weather(latitude: float, longitude: float) -> Dict[str, Any]:
     """
     try:
         weather = WeatherAPI()
-        return weather.get_current_weather(latitude, longitude)
+        result = weather.get_current_weather(latitude, longitude)
+        return add_server_timestamp(result)
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 
 
@@ -727,7 +744,8 @@ def tinydb_memorize(content: str, tags: str = "", category: str = "",
                 try:
                     datetime.fromisoformat(expires_val.replace('Z', '+00:00'))
                 except ValueError:
-                    return {"error": f"Invalid expiration date format: {expires_val}. Use ISO format."}
+                    result = {"error": f"Invalid expiration date format: {expires_val}. Use ISO format."}
+                    return add_server_timestamp(result)
             
             # Create memory object with proper timestamps
             memory_data = {
@@ -757,7 +775,7 @@ def tinydb_memorize(content: str, tags: str = "", category: str = "",
             if category_val:
                 tinydb_update_category_usage(category_val)
             
-            return {
+            result = {
                 "success": True,
                 "memory_id": memory_id,
                 "content": content,
@@ -770,12 +788,14 @@ def tinydb_memorize(content: str, tags: str = "", category: str = "",
                 "tag_registration": tag_info,
                 "message": "Information memorized successfully with TinyDB"
             }
+            return add_server_timestamp(result)
         except Exception as e:
             memory_db.close()
             raise e
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def tinydb_recall_memory(memory_id: str) -> Dict[str, Any]:
@@ -805,22 +825,26 @@ def tinydb_recall_memory(memory_id: str) -> Dict[str, Any]:
                     expiry = datetime.fromisoformat(memory['expires_at'].replace('Z', '+00:00'))
                     if datetime.now() > expiry:
                         memory_db.close()
-                        return {"error": f"Memory {memory_id} has expired"}
+                        result = {"error": f"Memory {memory_id} has expired"}
+                        return add_server_timestamp(result)
                         
                 memory_db.close()
-                return {
+                result = {
                     "success": True,
                     "memory": memory
                 }
+                return add_server_timestamp(result)
             else:
                 memory_db.close()
-                return {"error": f"Memory with ID {memory_id} not found"}
+                result = {"error": f"Memory with ID {memory_id} not found"}
+                return add_server_timestamp(result)
         except Exception as e:
             memory_db.close()
             raise e
             
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def tinydb_search_memories(query: str = "", tags: str = "", category: str = "", 
@@ -867,11 +891,12 @@ def tinydb_search_memories(query: str = "", tags: str = "", category: str = "",
                 category_exists, category_error, existing_categories = check_category_exists(category)
                 if not category_exists:
                     memory_db.close()
-                    return {
+                    result = {
                         "success": False,
                         "error": category_error,
                         "available_categories": existing_categories
                     }
+                    return add_server_timestamp(result)
             
             # Semantic tag expansion (if enabled)
             if semantic_search and tags:
@@ -960,7 +985,7 @@ def tinydb_search_memories(query: str = "", tags: str = "", category: str = "",
             else:
                 semantic_info = {"enabled": False}
             
-            return {
+            result = {
                 "success": True,
                 "memories": final_results,
                 "total_found": len(filtered_results),
@@ -974,12 +999,14 @@ def tinydb_search_memories(query: str = "", tags: str = "", category: str = "",
                 },
                 "semantic_expansion": semantic_info
             }
+            return add_server_timestamp(result)
         except Exception as e:
             memory_db.close()
             raise e
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def tinydb_list_memories(limit: int = 20) -> Dict[str, Any]:
@@ -1028,19 +1055,21 @@ def tinydb_list_memories(limit: int = 20) -> Dict[str, Any]:
             # Close database
             memory_db.close()
             
-            return {
+            result = {
                 "success": True,
                 "memories": limited_memories,
                 "total_active": len(active_memories),
                 "returned_count": len(limited_memories),
                 "limit": limit
             }
+            return add_server_timestamp(result)
         except Exception as e:
             memory_db.close()
             raise e
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 # Helper functions for TinyDB memory system
 def tinydb_register_tags(tag_list: List[str]) -> Dict[str, Any]:
@@ -1148,7 +1177,8 @@ def tinydb_update_memory(memory_id: str, content: str = "", tags: str = "",
             existing = memories_table.search(Record.id == memory_id)
             if not existing:
                 memory_db.close()
-                return {"error": f"Memory with ID {memory_id} not found"}
+                result = {"error": f"Memory with ID {memory_id} not found"}
+                return add_server_timestamp(result)
                 
             # Prepare updates
             updates = {}
@@ -1176,11 +1206,13 @@ def tinydb_update_memory(memory_id: str, content: str = "", tags: str = "",
                     updates['expires_at'] = expires_at.strip()
                 except ValueError:
                     memory_db.close()
-                    return {"error": f"Invalid expiration date format: {expires_at}"}
+                    result = {"error": f"Invalid expiration date format: {expires_at}"}
+                    return add_server_timestamp(result)
             
             if not updates:
                 memory_db.close()
-                return {"error": "No valid updates provided"}
+                result = {"error": "No valid updates provided"}
+                return add_server_timestamp(result)
             
             # Always update the last_modified timestamp
             updates['last_modified'] = datetime.now().isoformat()
@@ -1315,7 +1347,7 @@ def tinydb_memory_stats() -> Dict[str, Any]:
         all_categories = categories_table.all()
         category_count = len(all_categories)
         
-        return {
+        result = {
             "success": True,
             "total_memories": len(all_memories),
             "active_memories": active_count,
@@ -1330,9 +1362,11 @@ def tinydb_memory_stats() -> Dict[str, Any]:
                 "categories": "tinydb_categories.json"
             }
         }
+        return add_server_timestamp(result)
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def tinydb_get_memory_categories() -> Dict[str, Any]:
@@ -1387,15 +1421,17 @@ def tinydb_get_memory_categories() -> Dict[str, Any]:
             }
         ]
         
-        return {
+        result = {
             "success": True,
             "existing_categories": sorted_categories,
             "suggested_categories": suggested,
             "total_categories": len(all_categories)
         }
+        return add_server_timestamp(result)
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def tinydb_find_similar_tags(query: str, limit: int = 5, min_similarity: float = 0.3) -> Dict[str, Any]:
@@ -1432,11 +1468,12 @@ def tinydb_find_similar_tags(query: str, limit: int = 5, min_similarity: float =
         all_tags = tags_table.all()
         
         if not all_tags:
-            return {
+            result = {
                 "success": True,
                 "similar_tags": [],
                 "message": "No tags found in database"
             }
+            return add_server_timestamp(result)
         
         query_lower = query.lower().strip()
         similar_tags = []
@@ -1464,15 +1501,17 @@ def tinydb_find_similar_tags(query: str, limit: int = 5, min_similarity: float =
         # Sort by similarity first, then usage count
         similar_tags.sort(key=lambda x: (x['similarity'], x['usage_count']), reverse=True)
         
-        return {
+        result = {
             "success": True,
             "query": query,
             "similar_tags": similar_tags[:limit],
             "total_found": len(similar_tags)
         }
+        return add_server_timestamp(result)
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def tinydb_get_all_tags() -> Dict[str, Any]:
@@ -1501,14 +1540,16 @@ def tinydb_get_all_tags() -> Dict[str, Any]:
                 "last_used_at": tag_entry.get('last_used_at', '')
             })
         
-        return {
+        result = {
             "success": True,
             "tags": formatted_tags,
             "total_tags": len(formatted_tags)
         }
+        return add_server_timestamp(result)
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 # =============================================================================
 # GENERIC TINYDB TOOLS - Work with any TinyDB database in data folder
@@ -1544,16 +1585,18 @@ def tinydb_create_database(db_name: str, description: str = "") -> Dict[str, Any
             "created_by": "tinydb_create_database"
         })
         
-        return {
+        result = {
             "success": True,
             "database_name": db_name,
             "database_file": f"{db_name}.json" if not db_name.endswith('.json') else db_name,
             "description": description,
             "message": "Database created successfully"
         }
+        return add_server_timestamp(result)
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool() 
 def store_workspace_file(filename: str, content: str, description: str = "",
@@ -1589,10 +1632,11 @@ def store_workspace_file(filename: str, content: str, description: str = "",
             overwrite=overwrite
         )
         
-        return result
+        return add_server_timestamp(result)
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def read_workspace_file(filename: str) -> Dict[str, Any]:
@@ -1606,9 +1650,11 @@ def read_workspace_file(filename: str) -> Dict[str, Any]:
         Dictionary with file content and metadata
     """
     try:
-        return workspace_manager.read_text_file(filename)
+        result = workspace_manager.read_text_file(filename)
+        return add_server_timestamp(result)
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def list_workspace_files(filter_tags: str = "") -> Dict[str, Any]:
@@ -1625,10 +1671,12 @@ def list_workspace_files(filter_tags: str = "") -> Dict[str, Any]:
         # Parse filter tags
         tag_filter = [tag.strip() for tag in filter_tags.split(",") if tag.strip()] if filter_tags else None
         
-        return workspace_manager.list_workspace_files(filter_tags=tag_filter)
+        result = workspace_manager.list_workspace_files(filter_tags=tag_filter)
+        return add_server_timestamp(result)
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def delete_workspace_file(filename: str) -> Dict[str, Any]:
@@ -1642,9 +1690,11 @@ def delete_workspace_file(filename: str) -> Dict[str, Any]:
         Dictionary with deletion result
     """
     try:
-        return workspace_manager.delete_workspace_file(filename)
+        result = workspace_manager.delete_workspace_file(filename)
+        return add_server_timestamp(result)
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def update_workspace_file_metadata(filename: str, description: str = "",
@@ -1669,15 +1719,17 @@ def update_workspace_file_metadata(filename: str, description: str = "",
         description_val = description.strip() if description.strip() else None
         language_val = language.strip() if language.strip() else None
         
-        return workspace_manager.update_file_metadata(
+        result = workspace_manager.update_file_metadata(
             filename=filename,
             description=description_val,
             tags=tag_list,
             language=language_val
         )
+        return add_server_timestamp(result)
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def get_workspace_info() -> Dict[str, Any]:
@@ -1688,9 +1740,11 @@ def get_workspace_info() -> Dict[str, Any]:
         Dictionary with workspace statistics and configuration
     """
     try:
-        return workspace_manager.get_workspace_info()
+        result = workspace_manager.get_workspace_info()
+        return add_server_timestamp(result)
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def get_calendar(year: int, month: int) -> Dict[str, Any]:
@@ -1713,10 +1767,12 @@ def get_calendar(year: int, month: int) -> Dict[str, Any]:
     try:
         # Validate inputs
         if not (1 <= month <= 12):
-            return {"error": "Month must be between 1 and 12"}
+            result = {"error": "Month must be between 1 and 12"}
+            return add_server_timestamp(result)
         
         if year < 1:
-            return {"error": "Year must be positive"}
+            result = {"error": "Year must be positive"}
+            return add_server_timestamp(result)
         
         # Create HTML calendar
         html_cal = calendar.HTMLCalendar(firstweekday=0)  # 0=Monday
@@ -1743,7 +1799,7 @@ def get_calendar(year: int, month: int) -> Dict[str, Any]:
         is_current_month = (today.year == year and today.month == month)
         current_day = today.day if is_current_month else None
         
-        return {
+        result = {
             "success": True,
             "year": year,
             "month": month,
@@ -1758,9 +1814,11 @@ def get_calendar(year: int, month: int) -> Dict[str, Any]:
             "current_day": current_day,
             "format_note": "calendar_html provides structured data for easy parsing; calendar_text is human-readable fallback"
         }
+        return add_server_timestamp(result)
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def get_day_of_week(date_string: str) -> Dict[str, Any]:
@@ -1780,7 +1838,8 @@ def get_day_of_week(date_string: str) -> Dict[str, Any]:
         try:
             date_obj = datetime.strptime(date_string, "%Y-%m-%d")
         except ValueError:
-            return {"error": f"Invalid date format. Use YYYY-MM-DD format (e.g., '2025-08-09')"}
+            result = {"error": f"Invalid date format. Use YYYY-MM-DD format (e.g., '2025-08-09')"}
+            return add_server_timestamp(result)
         
         # Get weekday information
         weekday_number = date_obj.weekday()  # 0=Monday, 6=Sunday
@@ -1798,7 +1857,7 @@ def get_day_of_week(date_string: str) -> Dict[str, Any]:
         is_past = date_obj.date() < today
         is_future = date_obj.date() > today
         
-        return {
+        result = {
             "success": True,
             "date": date_string,
             "weekday_name": weekday_name,
@@ -1813,9 +1872,11 @@ def get_day_of_week(date_string: str) -> Dict[str, Any]:
             "month": date_obj.month,
             "day": date_obj.day
         }
+        return add_server_timestamp(result)
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def tinydb_store_data(db_name: str, table: str, data: Dict[str, Any], record_id: str = "") -> Dict[str, Any]:
@@ -1862,7 +1923,7 @@ def tinydb_store_data(db_name: str, table: str, data: Dict[str, Any], record_id:
             
             custom_db.close()
             
-            return {
+            result = {
                 "success": True,
                 "database": db_name,
                 "table": table,
@@ -1870,13 +1931,15 @@ def tinydb_store_data(db_name: str, table: str, data: Dict[str, Any], record_id:
                 "action": action,
                 "data": data
             }
+            return add_server_timestamp(result)
             
         except Exception as e:
             custom_db.close()
             raise e
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def tinydb_query_data(db_name: str, table: str, query_conditions: Dict[str, Any] = {}, 
@@ -1924,7 +1987,7 @@ def tinydb_query_data(db_name: str, table: str, query_conditions: Dict[str, Any]
             
             custom_db.close()
             
-            return {
+            result = {
                 "success": True,
                 "database": db_name,
                 "table": table,
@@ -1933,13 +1996,15 @@ def tinydb_query_data(db_name: str, table: str, query_conditions: Dict[str, Any]
                 "total_found": len(results),
                 "returned_count": len(limited_results)
             }
+            return add_server_timestamp(result)
             
         except Exception as e:
             custom_db.close()
             raise e
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def tinydb_update_data(db_name: str, table: str, record_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
@@ -1968,7 +2033,7 @@ def tinydb_update_data(db_name: str, table: str, record_id: str, updates: Dict[s
                 # Get updated record
                 updated_record = table_db.search(Record.id == record_id)[0]
                 custom_db.close()
-                return {
+                result = {
                     "success": True,
                     "database": db_name,
                     "table": table,
@@ -1976,16 +2041,19 @@ def tinydb_update_data(db_name: str, table: str, record_id: str, updates: Dict[s
                     "updated_fields": list(updates.keys()),
                     "updated_record": updated_record
                 }
+                return add_server_timestamp(result)
             else:
                 custom_db.close()
-                return {"error": f"No record found with ID {record_id} in table {table}"}
+                result = {"error": f"No record found with ID {record_id} in table {table}"}
+                return add_server_timestamp(result)
                 
         except Exception as e:
             custom_db.close()
             raise e
             
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def tinydb_delete_data(db_name: str, table: str, record_id: str = "", query_conditions: Dict[str, Any] = {}) -> Dict[str, Any]:
@@ -2025,24 +2093,27 @@ def tinydb_delete_data(db_name: str, table: str, record_id: str = "", query_cond
                 operation_type = "bulk_deletion"
             else:
                 custom_db.close()
-                return {"error": "Must provide either record_id or query_conditions"}
+                result = {"error": "Must provide either record_id or query_conditions"}
+                return add_server_timestamp(result)
             
             custom_db.close()
             
-            return {
+            result = {
                 "success": True,
                 "database": db_name,
                 "table": table,
                 "operation_type": operation_type,
                 "deleted_count": deleted_count
             }
+            return add_server_timestamp(result)
             
         except Exception as e:
             custom_db.close()
             raise e
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def tinydb_list_databases() -> Dict[str, Any]:
@@ -2100,15 +2171,17 @@ def tinydb_list_databases() -> Dict[str, Any]:
         # Sort by type and name
         databases.sort(key=lambda x: (x["type"], x["database_name"]))
         
-        return {
+        result = {
             "success": True,
             "databases": databases,
             "total_databases": len(databases),
             "data_path": base_path
         }
+        return add_server_timestamp(result)
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 @mcp.tool()
 def tinydb_get_database_info(db_name: str) -> Dict[str, Any]:
@@ -2180,13 +2253,15 @@ def tinydb_get_database_info(db_name: str) -> Dict[str, Any]:
             "total_records": total_records
         })
         
-        return {
+        result = {
             "success": True,
             **info
         }
+        return add_server_timestamp(result)
         
     except Exception as e:
-        return {"error": str(e)}
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
 
 def check_and_initialize_fresh_install():
     """Check if this is a fresh install and initialize with session-start preferences."""

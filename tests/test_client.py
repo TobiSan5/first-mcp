@@ -290,6 +290,153 @@ async def test_fresh_install_initialization():
         if os.path.exists(test_data_dir):
             shutil.rmtree(test_data_dir)
 
+async def test_server_timestamps():
+    """Test server timestamp functionality for the 3 updated tools."""
+    print("\n=== Testing Server Timestamp Functionality ===")
+    
+    try:
+        # Import server to get the FastMCP instance
+        import sys
+        import os
+        # Add src to path to import first_mcp package
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+        from first_mcp import server_impl
+        
+        # Create client connected directly to the server instance
+        client = Client(server_impl.mcp)
+        
+        async with client:
+            print("✓ Connected to MCP server for timestamp testing")
+            
+            # Test 1: get_system_info tool with server timestamp
+            print("\nTest 1: Testing get_system_info with server timestamp...")
+            try:
+                system_result = await client.call_tool("get_system_info")
+                system_data = system_result.data
+                
+                # Verify timestamp fields exist
+                if "server_timestamp" in system_data and "server_timezone" in system_data:
+                    print(f"✅ get_system_info has server_timestamp: {system_data['server_timestamp']}")
+                    print(f"✅ get_system_info has server_timezone: {system_data['server_timezone']}")
+                    
+                    # Verify original functionality preserved
+                    expected_fields = ["python_version", "platform", "current_directory", "python_executable"]
+                    if all(field in system_data for field in expected_fields):
+                        print("✅ get_system_info original functionality preserved")
+                    else:
+                        print(f"❌ get_system_info original functionality broken: {system_data}")
+                        return False
+                    
+                    # Validate ISO timestamp format
+                    from datetime import datetime
+                    try:
+                        datetime.fromisoformat(system_data["server_timestamp"])
+                        print("✅ get_system_info timestamp is valid ISO format")
+                    except ValueError:
+                        print(f"❌ get_system_info timestamp is not valid ISO format: {system_data['server_timestamp']}")
+                        return False
+                        
+                else:
+                    print(f"❌ get_system_info missing timestamp fields: {system_data}")
+                    return False
+                    
+            except Exception as e:
+                print(f"❌ get_system_info timestamp test failed: {e}")
+                return False
+            
+            # Test 2: count_words tool with server timestamp
+            print("\nTest 2: Testing count_words with server timestamp...")
+            try:
+                count_result = await client.call_tool("count_words", {"text": "This is a test message for timestamp verification"})
+                count_data = count_result.data
+                
+                # Verify timestamp fields exist
+                if "server_timestamp" in count_data and "server_timezone" in count_data:
+                    print(f"✅ count_words has server_timestamp: {count_data['server_timestamp']}")
+                    print(f"✅ count_words has server_timezone: {count_data['server_timezone']}")
+                    
+                    # Verify original functionality preserved
+                    expected_fields = ["words", "characters", "lines"]
+                    if all(field in count_data for field in expected_fields):
+                        # Verify the counts are correct
+                        if (count_data["words"] == 8 and 
+                            count_data["characters"] == 49 and 
+                            count_data["lines"] == 1):
+                            print("✅ count_words original functionality preserved and accurate")
+                        else:
+                            print(f"❌ count_words counts incorrect: {count_data}")
+                            return False
+                    else:
+                        print(f"❌ count_words original functionality broken: {count_data}")
+                        return False
+                    
+                    # Validate ISO timestamp format
+                    try:
+                        datetime.fromisoformat(count_data["server_timestamp"])
+                        print("✅ count_words timestamp is valid ISO format")
+                    except ValueError:
+                        print(f"❌ count_words timestamp is not valid ISO format: {count_data['server_timestamp']}")
+                        return False
+                        
+                else:
+                    print(f"❌ count_words missing timestamp fields: {count_data}")
+                    return False
+                    
+            except Exception as e:
+                print(f"❌ count_words timestamp test failed: {e}")
+                return False
+            
+            # Test 3: Verify timestamps are recent and reasonable
+            print("\nTest 3: Verifying timestamp recency and consistency...")
+            try:
+                from datetime import datetime, timezone
+                current_time = datetime.now()
+                
+                # Check all timestamps are recent (within last 10 seconds)
+                timestamps = [
+                    system_data["server_timestamp"], 
+                    count_data["server_timestamp"]
+                ]
+                
+                for i, timestamp_str in enumerate(timestamps):
+                    timestamp_obj = datetime.fromisoformat(timestamp_str)
+                    # Remove timezone info for comparison if present
+                    if timestamp_obj.tzinfo:
+                        timestamp_obj = timestamp_obj.replace(tzinfo=None)
+                    
+                    time_diff = abs((current_time - timestamp_obj).total_seconds())
+                    if time_diff <= 10:
+                        print(f"✅ Timestamp {i+1} is recent (within 10 seconds)")
+                    else:
+                        print(f"❌ Timestamp {i+1} is too old: {time_diff} seconds ago")
+                        return False
+                
+                # Verify timezone fields are populated
+                timezones = [
+                    system_data["server_timezone"], 
+                    count_data["server_timezone"]
+                ]
+                
+                for i, timezone_str in enumerate(timezones):
+                    if timezone_str and timezone_str != "":
+                        print(f"✅ Timezone {i+1} is populated: {timezone_str}")
+                    else:
+                        print(f"❌ Timezone {i+1} is empty or missing")
+                        return False
+                        
+            except Exception as e:
+                print(f"❌ Timestamp verification failed: {e}")
+                return False
+            
+            print("\n=== ALL TIMESTAMP TESTS COMPLETED SUCCESSFULLY ===")
+            return True
+        
+    except Exception as e:
+        print(f"\n✗ Timestamp test failed with error: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 if __name__ == "__main__":
     # Run main test
     asyncio.run(main())
@@ -299,4 +446,11 @@ if __name__ == "__main__":
     if not fresh_success:
         print("❌ Fresh install test failed!")
         exit(1)
+    
+    # Run timestamp test
+    timestamp_success = asyncio.run(test_server_timestamps())
+    if not timestamp_success:
+        print("❌ Timestamp test failed!")
+        exit(1)
+        
     print("🎉 All tests passed!")

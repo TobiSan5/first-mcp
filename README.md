@@ -24,10 +24,8 @@ The memory system has been **extracted into a reusable core package**:
 ## Features
 
 ### Core Tools
-- **hello_world**: Simple greeting tool
 - **get_system_info**: Returns system information including configured paths
 - **count_words**: Analyzes text statistics
-- **now**: Returns current date and time in ISO format with timezone
 - **list_files**: Lists files in a directory
 
 ### Calculator Tools
@@ -234,8 +232,8 @@ Replace `your-env-name` with your conda environment name and `YourUsername` with
 
 4. **Test in Claude Desktop:**
    - Start a new conversation
-   - Try: "What memory tools do you have available?"
-   - The response should list the TinyDB memory tools
+   - Try: "What tools do you have available?"
+   - The response should list all available MCP tools
 
 ### Troubleshooting
 
@@ -325,10 +323,8 @@ Completely quit and restart Claude Desktop app.
 ### 5. Test in Claude
 
 Start a new conversation and try:
-- "Use the hello_world tool to greet me"
 - "Get system information"
 - "Count words in this text: Hello world this is a test"
-- "What time is it now?"
 - "Calculate: 2^3 + 5 * (10 - 3)"
 - "Calculate time difference between '2025-08-12 10:00:00' and '2025-08-12 17:30:00'"
 - "Get coordinates for Oslo, Norway"
@@ -503,10 +499,8 @@ Once set up, you can ask Claude:
 
 ### Core & System Tools
 - "What tools do you have available from my MCP server?"
-- "Use the hello_world tool to greet John"
 - "Get my system information" (shows configured paths)
 - "Count the words in this paragraph: [your text]"
-- "What time is it now?"
 - "List the files in my project directory"
 
 ### Calculator Tools
@@ -538,7 +532,7 @@ Once set up, you can ask Claude:
 - "Show me the calendar for December 2025"
 - "Get the calendar for February 2024"
 
-The server will appear in Claude as "First MCP Server" with 35 available tools including high-performance TinyDB backend for memory management.
+The server will appear in Claude as "First MCP Server" with 33 available tools including high-performance TinyDB backend for memory management.
 
 ### Memory Functionality (TinyDB Backend)
 
