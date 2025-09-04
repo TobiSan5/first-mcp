@@ -72,8 +72,31 @@ def tinydb_memorize(content: str, tags: str = "", category: str = "",
             memory_id = str(uuid.uuid4())
             now = datetime.now().isoformat()
             
-            # Parse tags
-            tag_list = [tag.strip().lower() for tag in tags.split(',') if tag.strip()] if tags else []
+            # Parse and process tags with smart mapping
+            raw_tags = [tag.strip().lower() for tag in tags.split(',') if tag.strip()] if tags else []
+            
+            # Apply smart tag mapping for consolidation and optimization
+            if raw_tags:
+                from .tag_mapper import smart_tag_mapping
+                mapping_result = smart_tag_mapping(raw_tags, content, max_tags=3)
+                tag_list = mapping_result.get('final_tags', raw_tags)
+                # Store mapping info for transparency
+                mapping_info = {
+                    "mapping_applied": mapping_result.get('mapping_applied', False),
+                    "transparency_info": mapping_result.get('transparency_info', ''),
+                    "auto_replacements": mapping_result.get('auto_replacements', 0),
+                    "raw_tags": raw_tags,
+                    "final_tags": tag_list
+                }
+            else:
+                tag_list = []
+                mapping_info = {
+                    "mapping_applied": False, 
+                    "transparency_info": "No tags provided",
+                    "auto_replacements": 0,
+                    "raw_tags": [],
+                    "final_tags": []
+                }
             
             # Validate category
             category_val = category.strip() if category else None
@@ -125,6 +148,7 @@ def tinydb_memorize(content: str, tags: str = "", category: str = "",
                 "importance": importance,
                 "expires_at": expires_val,
                 "tag_registration": tag_info,
+                "tag_mapping": mapping_info,
                 "message": "Information memorized successfully with TinyDB"
             }
         except Exception as e:

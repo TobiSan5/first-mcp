@@ -199,6 +199,52 @@ async def test_tinydb_tools():
         traceback.print_exc()
         return False
 
+async def test_tag_mapping_integration():
+    """Test the smart tag mapping integration in tinydb_memorize."""
+    print("\n=== Testing Smart Tag Mapping Integration ===")
+    
+    try:
+        import sys
+        import os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+        from first_mcp.memory.memory_tools import tinydb_memorize
+        
+        # Test tag mapping directly
+        print("Testing tag mapping with potentially similar tags...")
+        result = tinydb_memorize(
+            content="Testing smart tag mapping integration", 
+            tags="py,programming,test-integration",
+            category="testing"
+        )
+        
+        if result.get("success"):
+            tag_mapping = result.get("tag_mapping", {})
+            raw_tags = tag_mapping.get("raw_tags", [])
+            final_tags = tag_mapping.get("final_tags", [])
+            mapping_applied = tag_mapping.get("mapping_applied", False)
+            
+            print(f"✅ Tag mapping test successful!")
+            print(f"   Raw tags: {raw_tags}")
+            print(f"   Final tags: {final_tags}")
+            print(f"   Mapping applied: {mapping_applied}")
+            
+            # Verify the mapping info is present
+            if "tag_mapping" in result:
+                print("✅ Tag mapping transparency info included in response")
+                return True
+            else:
+                print("❌ Tag mapping transparency info missing")
+                return False
+                
+        else:
+            print(f"❌ Tag mapping test failed: {result.get('error')}")
+            return False
+                
+    except Exception as e:
+        print(f"❌ Tag mapping integration test failed: {e}")
+        return False
+
+
 async def main():
     """Main test function."""
     success = await test_tinydb_tools()
@@ -440,6 +486,12 @@ async def test_server_timestamps():
 if __name__ == "__main__":
     # Run main test
     asyncio.run(main())
+    
+    # Run tag mapping integration test
+    tag_mapping_success = asyncio.run(test_tag_mapping_integration())
+    if not tag_mapping_success:
+        print("❌ Tag mapping integration test failed!")
+        exit(1)
     
     # Run fresh install test
     fresh_success = asyncio.run(test_fresh_install_initialization())

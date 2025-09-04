@@ -46,7 +46,44 @@ Transform this MCP server from a monolithic tool collection into a modular, dist
 - **Backward Compatibility**: Maintain existing tool interfaces including universal timestamp support
 - **Enhanced Timestamps**: Leverage timestamp system for advanced time-based features
 
-### 2.0 Deliverables
+### Tag Management System (v1.1 - Immediate) 🎯
+
+**Target**: Completion of current branch
+- ✅ **Advanced Tag Consolidation**: Hierarchical tagging, semantic grouping, and automated consolidation suggestions
+- ✅ **Centralized Write Operations**: SafeTagWriter class with comprehensive audit trails and validation
+- ✅ **Tag Governance**: Approval workflows, naming conventions, and health monitoring
+- 🚧 **Safe Testing Architecture**: Dry-run mode for all tag operations with explicit override patterns
+
+### 2.0 Deliverables - Safe Operations Architecture 🛡️
+
+**Priority Enhancement**: Universal Safe Operations Pattern
+
+#### Safe Operations Framework
+- **Client Transparency**: Claude Desktop client knows nothing about dry runs
+- **Server Intelligence**: Tools use management classes in execution mode by default
+- **Test Safety**: `test_client.py` automatically operates all tools in dry-run mode
+- **Explicit Override Pattern**: Applied to all memory and workspace management modules
+  - Memory operations (create, update, delete memories)
+  - Tag management (consolidate, prune, standardize) 
+  - Workspace operations (file creation, modification)
+  - Database operations (create, update, delete records)
+
+#### Implementation Pattern
+```python
+# Server tools (execution mode by default)
+@mcp.tool()
+def consolidate_tags(rules: List[Dict]):
+    manager = TagManager(dry_run=False)  # Real execution
+    return manager.consolidate_tags(rules)
+
+# Test environment detection
+def is_test_environment() -> bool:
+    return 'test_client.py' in sys.argv[0] or 'pytest' in sys.modules
+
+# Automatic test safety
+if is_test_environment():
+    manager = TagManager(dry_run=True)  # Safe for tests
+```
 
 #### 2.1 - Repository Structure & CI/CD
 - [ ] GitHub repository with proper branching strategy

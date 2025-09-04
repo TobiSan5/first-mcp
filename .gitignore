@@ -51,7 +51,8 @@ Thumbs.db
 claude_desktop_config.json
 
 # Claude Code generated files
-# (CLAUDE.md and .claude/ now handled by git exclude)
+CLAUDE.md
+.claude/
 
 # Legacy memory system data files (not needed in repository)
 memory_store.json
