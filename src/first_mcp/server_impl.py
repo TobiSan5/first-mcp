@@ -23,24 +23,12 @@ try:
         get_memory_tinydb, get_tags_tinydb, get_categories_tinydb, get_custom_tinydb,
         tinydb_memorize as tinydb_memorize_impl, tinydb_recall_memory, tinydb_search_memories, 
         tinydb_list_memories, tinydb_update_memory, tinydb_delete_memory,
-        tinydb_memory_stats, tinydb_get_memory_categories, memory_workflow_guide,
+        tinydb_get_memory_categories, memory_workflow_guide,
         tinydb_find_similar_tags, tinydb_get_all_tags,
         find_similar_tags_internal, check_category_exists,
         tinydb_create_database, tinydb_store_data, tinydb_query_data,
         tinydb_update_data, tinydb_delete_data, tinydb_list_databases,
-        tinydb_get_database_info,
-        # Advanced tag tools
-        tinydb_analyze_tag_health, tinydb_consolidate_tags, tinydb_create_hierarchical_tags,
-        tinydb_suggest_tag_consolidation, tinydb_prune_unused_tags, tinydb_get_tag_hierarchy,
-        # Semantic tag grouping
-        tinydb_analyze_semantic_groups, tinydb_create_tag_aliases, tinydb_suggest_semantic_consolidation,
-        tinydb_resolve_tag_alias, tinydb_get_tag_aliases,
-        # Tag governance
-        tinydb_validate_tag_name, tinydb_submit_tag_for_approval, tinydb_approve_tag,
-        tinydb_get_pending_approvals, tinydb_deprecate_tag, tinydb_get_tag_governance_report,
-        tinydb_standardize_existing_tags,
-        # Smart tag mapping
-        smart_tag_mapping
+        tinydb_get_database_info
     )
     MEMORY_PACKAGE_AVAILABLE = True
 except ImportError:
@@ -453,7 +441,7 @@ def memory_workflow_guide() -> Dict[str, Any]:
             "memory_id": ""
         })
     
-    return {
+    result = {
         "success": True,
         "stored_best_practices": {
             "total_stored_practices": len(stored_guidelines),
@@ -706,6 +694,8 @@ def memory_workflow_guide() -> Dict[str, Any]:
             }
         }
     }
+    
+    return add_server_timestamp(result)
 
 
 
@@ -1298,87 +1288,6 @@ def tinydb_delete_memory(memory_id: str) -> Dict[str, Any]:
     except Exception as e:
         return {"error": str(e)}
 
-@mcp.tool()
-def tinydb_memory_stats() -> Dict[str, Any]:
-    """
-    Get statistics about memorized information using TinyDB.
-    
-    Returns:
-        Dictionary with comprehensive memory statistics
-    """
-    try:
-        from datetime import datetime
-        
-        memory_db = get_memory_tinydb()
-        memories_table = memory_db.table('memories')
-        tags_db = get_tags_tinydb()
-        tags_table = tags_db.table('tags')
-        categories_db = get_categories_tinydb()
-        categories_table = categories_db.table('categories')
-        
-        # Get all memories
-        all_memories = memories_table.all()
-        
-        # Count active vs expired
-        current_time = datetime.now()
-        active_count = 0
-        expired_count = 0
-        
-        importance_dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-        category_dist = {}
-        
-        for memory in all_memories:
-            # Check expiration
-            if memory.get('expires_at'):
-                try:
-                    expiry = datetime.fromisoformat(memory['expires_at'].replace('Z', '+00:00'))
-                    if current_time <= expiry:
-                        active_count += 1
-                    else:
-                        expired_count += 1
-                except:
-                    active_count += 1  # Keep if date parsing fails
-            else:
-                active_count += 1
-                
-            # Count importance distribution
-            importance = memory.get('importance', 3)
-            if importance in importance_dist:
-                importance_dist[importance] += 1
-                
-            # Count category distribution
-            category = memory.get('category')
-            if category:
-                category_dist[category] = category_dist.get(category, 0) + 1
-        
-        # Get tag statistics
-        all_tags = tags_table.all()
-        tag_count = len(all_tags)
-        
-        # Get category statistics
-        all_categories = categories_table.all()
-        category_count = len(all_categories)
-        
-        result = {
-            "success": True,
-            "total_memories": len(all_memories),
-            "active_memories": active_count,
-            "expired_memories": expired_count,
-            "importance_distribution": importance_dist,
-            "category_distribution": category_dist,
-            "total_tags": tag_count,
-            "total_categories": category_count,
-            "database_files": {
-                "memories": "tinydb_memories.json",
-                "tags": "tinydb_tags.json", 
-                "categories": "tinydb_categories.json"
-            }
-        }
-        return add_server_timestamp(result)
-        
-    except Exception as e:
-        result = {"error": str(e)}
-        return add_server_timestamp(result)
 
 @mcp.tool()
 def tinydb_get_memory_categories() -> Dict[str, Any]:
@@ -2276,258 +2185,9 @@ def tinydb_get_database_info(db_name: str) -> Dict[str, Any]:
         return add_server_timestamp(result)
 
 
-# Advanced Tag Management Tools
-@mcp.tool()
-def tinydb_analyze_tag_health() -> Dict[str, Any]:
-    """Analyze the overall health of the tag system."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = tinydb_analyze_tag_health()
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
 
 
-@mcp.tool()
-def tinydb_suggest_tag_consolidation(limit: int = 20, min_similarity: float = 0.7) -> Dict[str, Any]:
-    """Suggest tag consolidations based on similarity analysis."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = tinydb_suggest_tag_consolidation(limit, min_similarity)
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
 
-
-@mcp.tool()
-def tinydb_consolidate_tags(consolidation_rules: List[Dict[str, Any]], dry_run: bool = True) -> Dict[str, Any]:
-    """Apply tag consolidation rules to existing memories."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = tinydb_consolidate_tags(consolidation_rules, dry_run)
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
-
-
-@mcp.tool()
-def tinydb_create_hierarchical_tags(hierarchies: List[Dict[str, Any]], dry_run: bool = True) -> Dict[str, Any]:
-    """Create hierarchical tag relationships."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = tinydb_create_hierarchical_tags(hierarchies, dry_run)
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
-
-
-@mcp.tool()
-def tinydb_prune_unused_tags(age_threshold_days: int = 90, usage_threshold: int = 1, dry_run: bool = True) -> Dict[str, Any]:
-    """Prune unused or rarely used tags."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = tinydb_prune_unused_tags(age_threshold_days, usage_threshold, dry_run)
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
-
-
-@mcp.tool()
-def tinydb_get_tag_hierarchy(include_usage: bool = True) -> Dict[str, Any]:
-    """Get hierarchical tag structure with usage statistics."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = tinydb_get_tag_hierarchy(include_usage)
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
-
-
-# Semantic Tag Grouping Tools
-@mcp.tool()
-def tinydb_analyze_semantic_groups(tags: Optional[List[str]] = None) -> Dict[str, Any]:
-    """Analyze semantic groups within tags."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = tinydb_analyze_semantic_groups(tags)
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
-
-
-@mcp.tool()
-def tinydb_create_tag_aliases(alias_mappings: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Create tag aliases for better organization."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = tinydb_create_tag_aliases(alias_mappings)
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
-
-
-@mcp.tool()
-def tinydb_suggest_semantic_consolidation(min_group_size: int = 2) -> Dict[str, Any]:
-    """Suggest semantic consolidation opportunities."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = tinydb_suggest_semantic_consolidation(min_group_size)
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
-
-
-@mcp.tool()
-def tinydb_resolve_tag_alias(tag: str) -> str:
-    """Resolve a tag to its canonical form."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return "Error: Memory package not available"
-    
-    try:
-        result = tinydb_resolve_tag_alias(tag)
-        return result
-    except Exception as e:
-        return f"Error: {str(e)}"
-
-
-@mcp.tool()
-def tinydb_get_tag_aliases(canonical_tag: Optional[str] = None) -> Dict[str, Any]:
-    """Get tag alias mappings."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = tinydb_get_tag_aliases(canonical_tag)
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
-
-
-# Tag Governance Tools
-@mcp.tool()
-def tinydb_validate_tag_name(tag: str) -> Dict[str, Any]:
-    """Validate a tag name according to governance rules."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = tinydb_validate_tag_name(tag)
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
-
-
-@mcp.tool()
-def tinydb_submit_tag_for_approval(tag: str, category: Optional[str] = None, 
-                                 justification: str = "") -> Dict[str, Any]:
-    """Submit a new tag for governance approval."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = tinydb_submit_tag_for_approval(tag, category, justification)
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
-
-
-@mcp.tool()
-def tinydb_approve_tag(submission_id: str, approved: bool = True, 
-                     reviewer_notes: str = "") -> Dict[str, Any]:
-    """Approve or reject a tag submission."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = tinydb_approve_tag(submission_id, approved, reviewer_notes)
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
-
-
-@mcp.tool()
-def tinydb_get_pending_approvals() -> Dict[str, Any]:
-    """Get pending tag approval submissions."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = tinydb_get_pending_approvals()
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
-
-
-@mcp.tool()
-def tinydb_deprecate_tag(tag: str, replacement_tag: Optional[str] = None, 
-                        reason: str = "") -> Dict[str, Any]:
-    """Mark a tag as deprecated."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = tinydb_deprecate_tag(tag, replacement_tag, reason)
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
-
-
-@mcp.tool()
-def tinydb_get_tag_governance_report() -> Dict[str, Any]:
-    """Get comprehensive tag governance report."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = tinydb_get_tag_governance_report()
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
-
-
-@mcp.tool()
-def tinydb_standardize_existing_tags(dry_run: bool = True) -> Dict[str, Any]:
-    """Standardize existing tags according to governance rules."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = tinydb_standardize_existing_tags(dry_run)
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
-
-
-# Smart Tag Mapping Tool
-@mcp.tool()
-def smart_tag_mapping(input_tags: List[str], content: str, max_tags: int = 3) -> Dict[str, Any]:
-    """Apply smart tag mapping to improve tag consistency."""
-    if not MEMORY_PACKAGE_AVAILABLE:
-        return add_server_timestamp({"error": "Memory package not available"})
-    
-    try:
-        result = smart_tag_mapping(input_tags, content, max_tags)
-        return add_server_timestamp(result)
-    except Exception as e:
-        return add_server_timestamp({"error": str(e)})
 
 
 def check_and_initialize_fresh_install():

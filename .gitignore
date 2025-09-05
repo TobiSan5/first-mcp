@@ -65,5 +65,8 @@ memory_categories.json
 # TinyDB database files (created at runtime)
 tinydb_*.json
 
-# Archive scripts (throwaway/migration scripts)
+# Archive scripts (throwaway scripts, migration scripts, ideation scripts, etc.)
 _archive_scripts/
+
+# Local developer notes (not meant for sharing, extensive commit explanations)
+_developer_notes/
