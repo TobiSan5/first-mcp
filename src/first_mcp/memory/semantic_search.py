@@ -4,7 +4,7 @@ Semantic search functionality for memory system.
 
 from typing import List, Tuple, Dict, Any
 from .database import get_tags_tinydb, get_categories_tinydb
-from .tag_tools import _generate_embedding, _cosine_similarity
+from ..embeddings import generate_embedding as _generate_embedding, cosine_similarity as _cosine_similarity
 
 
 def find_similar_tags_internal(query: str, limit: int = 5, min_similarity: float = 0.3) -> List[str]:

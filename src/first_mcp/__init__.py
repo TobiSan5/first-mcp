@@ -25,6 +25,17 @@ v1.1.0 [COMPLETE - Architecture & Interface Optimization]
 - ✅ Essential tools preserved: 17 core tools (10 memory + 7 database)
 - ✅ Removed experimental tools: governance, aliases, maintenance
 
+v1.1.1 [NOT RELEASED - stashed]
+- Configurable tag limits and MemoryConfig class (abandoned before testing)
+
+v1.2.0 [COMPLETE - Text Similarity Tools]
+- ✅ New embeddings.py data layer (generate_embedding, cosine_similarity, weighted_combine_embeddings)
+- ✅ compute_text_similarity() MCP tool — with optional context and adjustable weights
+- ✅ rank_texts_by_similarity() MCP tool
+- ✅ tag_tools.py and semantic_search.py refactored to use embeddings.py (no duplication)
+- ✅ --version / -V CLI flag
+- ✅ Data processing and MCP layer tests for all embedding functions
+
 v2.0.0 [PLANNED - Modular Architecture + Smart Features]
 - 📋 Extract memory system as core package
 - 📋 Optional extensions: [workspace], [weather], [all]  
@@ -50,12 +61,12 @@ DEVELOPMENT PHILOSOPHY:
 Author: Torbjørn Wikestad <torbjorn.wikestad@gmail.com>
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __author__ = "Torbjørn Wikestad"
 __email__ = "torbjorn.wikestad@gmail.com"
 
 # Version info tuple for programmatic access
-VERSION = (1, 1, 0)
+VERSION = (1, 2, 0)
 
 # Package metadata
 PACKAGE_NAME = "first-mcp"

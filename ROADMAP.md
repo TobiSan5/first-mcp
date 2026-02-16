@@ -4,34 +4,38 @@
 
 Transform this MCP server from a monolithic tool collection into a modular, distributable Python package ecosystem. The goal is to create specialized MCP servers that can be easily installed, configured, and maintained.
 
-## Current Status: v1.0 - Functional Baseline ✅
+## Version History
 
-**Released**: Initial commit (stable reference point)
+### v1.0.0 ✅ Released
+- Complete FastMCP server with memory, weather, workspace, calculator, and calendar tools
+- Memory system with TinyDB backend
+- Universal server timestamp integration across all tool responses
+- Auto-initialization for fresh installs
 
-- ✅ Complete FastMCP server with 33 tools (optimized from 35)
-- ✅ Memory system with TinyDB backend (15 memory tools)  
-- ✅ Weather integration (OpenWeatherMap + Yr.no APIs)
-- ✅ Workspace file management system
-- ✅ Calculator tools (math expressions + timedeltas)
-- ✅ Calendar and date utilities
-- ✅ Generic TinyDB database tools
-- ✅ **Server timestamp integration**: All tool responses include server timestamps for time/date awareness
-- ✅ Comprehensive documentation and examples
+### v1.1.0 ✅ Released
+- Tool pruning: 52 → 32 tools (38% reduction for better UX)
+- Architecture delegation pattern: MCP ↔ Server ↔ Data layers
+- 3-tier test structure: server/data/intelligence separation
+- Smart tag mapping integrated into `tinydb_memorize`
+- Removed experimental tools: governance, aliases, maintenance
 
-### Recent Enhancements (v1.0.1)
-- ✅ **Universal Server Timestamps**: All MCP tool responses now include `server_timestamp` (ISO format) and `server_timezone` fields
-- ✅ **Tool Optimization**: Removed unnecessary `hello_world` and `now` tools (timestamps make `now` redundant)
-- ✅ **Enhanced Time Awareness**: All responses provide consistent temporal context for better LLM understanding
-- ✅ **Test Coverage**: Comprehensive timestamp functionality testing with verification of ISO format compliance
+### v1.1.1 ⚠️ Not Released (stashed as WIP)
+The following features were designed and partially implemented but never completed or tested:
+- **Configurable tag limits** via environment variables (e.g. `FIRST_MCP_MAX_TAGS`)
+- **`MemoryConfig` class** for runtime configuration management
+- **`configure_memory_settings()` MCP tool** for adjusting memory behaviour at runtime
+- **`get_system_info()` enhancement** to display memory config state
 
-**Architecture**: Monolithic server.py with all functionality and universal timestamp support
+These ideas remain valid — tag proliferation is a known problem — but the implementation was abandoned before testing. The stash is preserved as `stash@{0}` on branch `feature/v1.1.1-tag-limit`.
 
-### Technical Achievements
-- **Universal Timestamp System**: Implemented `add_server_timestamp()` helper function that wraps all MCP tool responses
-- **Consistent Time Awareness**: All 33 tools now provide ISO-formatted timestamps with timezone information
-- **Enhanced LLM Context**: Server timestamps enable better temporal reasoning and time-based operations
-- **Backwards Compatible**: Timestamp addition preserves all existing tool functionality
-- **Production Ready**: Comprehensive test coverage validates timestamp functionality across all tools
+### v1.2.0 ✅ Released (current `main`)
+New `embeddings.py` data layer and two MCP tools for semantic similarity scoring:
+- **`compute_text_similarity(query, text, context?, text_weight?, context_weight?)`** — cosine similarity with optional context blending via weighted embedding average
+- **`rank_texts_by_similarity(query, candidates)`** — rank a list of texts by relevance to a query
+- **`weighted_combine_embeddings()`** — normalized weighted sum of two embedding vectors (data layer)
+- `tag_tools.py` and `semantic_search.py` refactored to import from `embeddings.py` (no duplication)
+- `--version` / `-V` CLI flag — prints version and exits cleanly
+- Data processing tests (20) and MCP layer tests (5) — all passing
 
 ## Version 2.0 - Modular Architecture 🚧
 
@@ -46,13 +50,9 @@ Transform this MCP server from a monolithic tool collection into a modular, dist
 - **Backward Compatibility**: Maintain existing tool interfaces including universal timestamp support
 - **Enhanced Timestamps**: Leverage timestamp system for advanced time-based features
 
-### Tag Management System (v1.1 - Immediate) 🎯
-
-**Target**: Completion of current branch
-- ✅ **Advanced Tag Consolidation**: Hierarchical tagging, semantic grouping, and automated consolidation suggestions
-- ✅ **Centralized Write Operations**: SafeTagWriter class with comprehensive audit trails and validation
-- ✅ **Tag Governance**: Approval workflows, naming conventions, and health monitoring
-- 🚧 **Safe Testing Architecture**: Dry-run mode for all tag operations with explicit override patterns
+### Tag Management (deferred from v1.1.1)
+- Tag proliferation prevention (configurable limits, env-var config) — see v1.1.1 stash
+- Tag governance, consolidation workflows — planned for v2.0
 
 ### 2.0 Deliverables - Safe Operations Architecture 🛡️
 
@@ -277,6 +277,6 @@ Create a thriving ecosystem of MCP servers that can be:
 
 ---
 
-**Maintained by**: Torbjørn Wikestad  
-**Last Updated**: 2025-09-01  
-**Next Review**: Q1 2025 (before v2.0 release)
+**Maintained by**: Torbjørn Wikestad
+**Last Updated**: 2026-02-16
+**Next Review**: On v2.0 planning
