@@ -44,8 +44,14 @@ workspace = [
 weather = [
     "requests>=2.31.0",
 ]
+embeddings = [
+    "google-genai>=1.0.0",
+    "numpy>=1.24.0",
+]
 all = [
     "requests>=2.31.0",
+    "google-genai>=1.0.0",
+    "numpy>=1.24.0",
 ]
 
 [project.urls]

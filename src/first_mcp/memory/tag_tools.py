@@ -7,7 +7,7 @@ from datetime import datetime
 import os
 from tinydb import Query
 from .database import get_tags_tinydb
-from ..embeddings import generate_embedding as _generate_embedding, cosine_similarity as _cosine_similarity, GENAI_AVAILABLE
+from ..embeddings import generate_embedding as _generate_embedding, cosine_similarity as _cosine_similarity, GENAI_AVAILABLE, EMBEDDING_MODEL
 
 
 def tinydb_register_tags(tag_list: List[str]) -> Dict[str, Any]:
@@ -46,7 +46,7 @@ def tinydb_register_tags(tag_list: List[str]) -> Dict[str, Any]:
                     # Add embedding metadata if successful
                     if embedding:
                         tag_data['embedding_generated_at'] = datetime.now().isoformat()
-                        tag_data['embedding_model'] = 'text-embedding-004'
+                        tag_data['embedding_model'] = EMBEDDING_MODEL
                     
                     tags_table.insert(tag_data)
                     status = f"Created: {tag}"
@@ -206,7 +206,7 @@ def tinydb_generate_missing_embeddings() -> Dict[str, Any]:
                     {
                         'embedding': embedding,
                         'embedding_generated_at': datetime.now().isoformat(),
-                        'embedding_model': 'text-embedding-004'
+                        'embedding_model': EMBEDDING_MODEL
                     },
                     Record.tag == tag_name
                 )
@@ -260,8 +260,8 @@ def tinydb_embedding_stats() -> Dict[str, Any]:
             "tags_without_embeddings": total_tags - tags_with_embeddings,
             "coverage_percent": round(coverage_percent, 1),
             "api_available": GENAI_AVAILABLE and bool(os.getenv('GOOGLE_API_KEY')),
-            "embedding_model": "text-embedding-004",
-            "embedding_dimensions": 768
+            "embedding_model": EMBEDDING_MODEL,
+            "embedding_dimensions": 3072
         }
         
     except Exception as e:
@@ -299,6 +299,77 @@ def tinydb_get_all_tags() -> Dict[str, Any]:
             "tags": formatted_tags,
             "total_tags": len(formatted_tags)
         }
-        
+
     except Exception as e:
         return {"error": str(e)}
+
+
+def regenerate_all_tag_embeddings() -> Dict[str, Any]:
+    """
+    Service function: regenerate embeddings for ALL tags using the current model.
+
+    Should be called manually after an embedding model change to ensure all stored
+    tag vectors are consistent with the model declared in embeddings.EMBEDDING_MODEL.
+    This is NOT registered as an MCP tool — call it from a script or Python REPL.
+
+    Returns:
+        Dictionary with counts of processed, updated, and failed tags.
+    """
+    from ..embeddings import EMBEDDING_DIMENSIONS
+
+    api_available = GENAI_AVAILABLE and bool(os.getenv('GOOGLE_API_KEY'))
+    if not api_available:
+        return {
+            "success": False,
+            "error": "Embedding API unavailable. Ensure google-genai is installed and GOOGLE_API_KEY is set.",
+            "api_available": False
+        }
+
+    try:
+        tags_db = get_tags_tinydb()
+        tags_table = tags_db.table('tags')
+        Record = Query()
+
+        all_tags = tags_table.all()
+        if not all_tags:
+            tags_db.close()
+            return {"success": True, "message": "No tags found.", "processed": 0, "updated": 0, "failed": 0}
+
+        updated = 0
+        failed = 0
+        failed_tags = []
+
+        for tag_record in all_tags:
+            tag_name = tag_record.get('tag', '')
+            embedding = _generate_embedding(tag_name)
+
+            if embedding and len(embedding) == EMBEDDING_DIMENSIONS:
+                tags_table.update(
+                    {
+                        'embedding': embedding,
+                        'embedding_generated_at': datetime.now().isoformat(),
+                        'embedding_model': EMBEDDING_MODEL
+                    },
+                    Record.tag == tag_name
+                )
+                updated += 1
+            else:
+                failed += 1
+                failed_tags.append(tag_name)
+
+        tags_db.close()
+
+        result: Dict[str, Any] = {
+            "success": True,
+            "processed": len(all_tags),
+            "updated": updated,
+            "failed": failed,
+            "embedding_model": EMBEDDING_MODEL,
+            "embedding_dimensions": EMBEDDING_DIMENSIONS
+        }
+        if failed_tags:
+            result["failed_tags"] = failed_tags[:20]
+        return result
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}

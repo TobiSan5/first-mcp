@@ -1,7 +1,7 @@
 """
 Text embedding and similarity tools.
 
-Provides access to the server's embedding model (Google AI text-embedding-004)
+Provides access to the server's embedding model (Google AI gemini-embedding-001)
 for semantic similarity scoring. These are general-purpose utilities not tied
 to the memory/tag system.
 """
@@ -16,8 +16,8 @@ try:
 except ImportError:
     GENAI_AVAILABLE = False
 
-EMBEDDING_MODEL = "text-embedding-004"
-EMBEDDING_DIMENSIONS = 768
+EMBEDDING_MODEL = "gemini-embedding-001"
+EMBEDDING_DIMENSIONS = 3072
 
 
 def generate_embedding(text: str) -> Optional[List[float]]:
