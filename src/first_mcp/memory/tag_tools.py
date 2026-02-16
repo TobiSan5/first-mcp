@@ -385,3 +385,57 @@ def regenerate_all_tag_embeddings(batch_size: int = 20) -> Dict[str, Any]:
 
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+def check_and_migrate_tag_embeddings() -> Dict[str, Any]:
+    """
+    Service function: check whether stored tag embeddings were generated with the
+    current embedding model, and migrate them automatically if not.
+
+    Intended to be called at server startup. If the stored model matches
+    EMBEDDING_MODEL, it returns immediately with no work done. If a mismatch
+    is detected, it calls regenerate_all_tag_embeddings() and reports the result.
+
+    Returns:
+        Dictionary describing the action taken: 'none' (already current),
+        'migrated' (regeneration ran), or 'no_embeddings' (nothing stored yet).
+    """
+    import sys
+
+    try:
+        tags_db = get_tags_tinydb()
+        tags_table = tags_db.table('tags')
+        Record = Query()
+
+        tags_with_model = tags_table.search(Record.embedding_model.exists())
+        tags_db.close()
+
+        if not tags_with_model:
+            return {
+                "success": True,
+                "action": "no_embeddings",
+                "reason": "No tags with stored model reference found — nothing to migrate."
+            }
+
+        stored_model = tags_with_model[0].get('embedding_model', '')
+
+        if stored_model == EMBEDDING_MODEL:
+            return {
+                "success": True,
+                "action": "none",
+                "reason": f"Tag embeddings are current (model: {EMBEDDING_MODEL})."
+            }
+
+        print(
+            f"Tag embedding model mismatch: stored='{stored_model}', current='{EMBEDDING_MODEL}'. "
+            "Migrating tag embeddings at startup...",
+            file=sys.stderr
+        )
+
+        result = regenerate_all_tag_embeddings()
+        result["action"] = "migrated"
+        result["previous_model"] = stored_model
+        return result
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}

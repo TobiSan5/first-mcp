@@ -2332,7 +2332,20 @@ def main():
     
     # Check for fresh install and initialize if needed
     check_and_initialize_fresh_install()
-    
+
+    # Migrate tag embeddings if the embedding model has changed
+    if MEMORY_PACKAGE_AVAILABLE:
+        from .memory.tag_tools import check_and_migrate_tag_embeddings
+        migration = check_and_migrate_tag_embeddings()
+        if migration.get("action") == "migrated":
+            print(
+                f"✓ Tag embeddings migrated: {migration.get('updated', 0)} updated "
+                f"({migration.get('previous_model')} -> {migration.get('embedding_model')})",
+                file=sys.stderr
+            )
+        elif migration.get("action") == "none":
+            print(f"✓ Tag embeddings current ({migration.get('reason', '')})", file=sys.stderr)
+
     # Run the MCP server
     mcp.run(transport="stdio")
 
