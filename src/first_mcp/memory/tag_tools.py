@@ -304,7 +304,7 @@ def tinydb_get_all_tags() -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-def regenerate_all_tag_embeddings() -> Dict[str, Any]:
+def regenerate_all_tag_embeddings(delay: float = 0.3) -> Dict[str, Any]:
     """
     Service function: regenerate embeddings for ALL tags using the current model.
 
@@ -312,9 +312,16 @@ def regenerate_all_tag_embeddings() -> Dict[str, Any]:
     tag vectors are consistent with the model declared in embeddings.EMBEDDING_MODEL.
     This is NOT registered as an MCP tool — call it from a script or Python REPL.
 
+    Prints progress to stderr so you can see it running.
+
+    Args:
+        delay: Seconds to wait between API calls to respect rate limits. Default: 0.3
+
     Returns:
         Dictionary with counts of processed, updated, and failed tags.
     """
+    import sys
+    import time
     from ..embeddings import EMBEDDING_DIMENSIONS
 
     api_available = GENAI_AVAILABLE and bool(os.getenv('GOOGLE_API_KEY'))
@@ -331,15 +338,19 @@ def regenerate_all_tag_embeddings() -> Dict[str, Any]:
         Record = Query()
 
         all_tags = tags_table.all()
-        if not all_tags:
+        total = len(all_tags)
+
+        if not total:
             tags_db.close()
             return {"success": True, "message": "No tags found.", "processed": 0, "updated": 0, "failed": 0}
+
+        print(f"Regenerating embeddings for {total} tags (model: {EMBEDDING_MODEL})...", file=sys.stderr)
 
         updated = 0
         failed = 0
         failed_tags = []
 
-        for tag_record in all_tags:
+        for i, tag_record in enumerate(all_tags, start=1):
             tag_name = tag_record.get('tag', '')
             embedding = _generate_embedding(tag_name)
 
@@ -353,15 +364,21 @@ def regenerate_all_tag_embeddings() -> Dict[str, Any]:
                     Record.tag == tag_name
                 )
                 updated += 1
+                print(f"  [{i}/{total}] ✓ {tag_name}", file=sys.stderr)
             else:
                 failed += 1
                 failed_tags.append(tag_name)
+                print(f"  [{i}/{total}] ✗ {tag_name} (failed)", file=sys.stderr)
+
+            if i < total:
+                time.sleep(delay)
 
         tags_db.close()
+        print(f"Done. Updated: {updated}, Failed: {failed}", file=sys.stderr)
 
         result: Dict[str, Any] = {
             "success": True,
-            "processed": len(all_tags),
+            "processed": total,
             "updated": updated,
             "failed": failed,
             "embedding_model": EMBEDDING_MODEL,
