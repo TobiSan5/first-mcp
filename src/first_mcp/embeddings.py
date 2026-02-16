@@ -48,6 +48,51 @@ def generate_embedding(text: str) -> Optional[List[float]]:
         return None
 
 
+def generate_embeddings_batch(texts: List[str], batch_size: int = 20) -> List[Optional[List[float]]]:
+    """
+    Generate embeddings for a list of texts using batched API calls.
+
+    Much more efficient than calling generate_embedding() in a loop when
+    processing many texts. Results are returned in the same order as the input.
+
+    Args:
+        texts: List of texts to embed
+        batch_size: Number of texts per API call. Default: 20
+
+    Returns:
+        List of embedding vectors (same length as input). Entries are None
+        for any text whose embedding could not be generated.
+    """
+    if not GENAI_AVAILABLE:
+        return [None] * len(texts)
+
+    api_key = os.getenv('GOOGLE_API_KEY')
+    if not api_key:
+        return [None] * len(texts)
+
+    results: List[Optional[List[float]]] = [None] * len(texts)
+
+    try:
+        client = genai.Client(api_key=api_key)
+
+        for batch_start in range(0, len(texts), batch_size):
+            batch = texts[batch_start:batch_start + batch_size]
+            try:
+                response = client.models.embed_content(
+                    model=EMBEDDING_MODEL,
+                    contents=batch
+                )
+                for j, emb in enumerate(response.embeddings):
+                    results[batch_start + j] = list(emb.values)
+            except Exception:
+                pass  # Leave None for this batch; caller handles missing entries
+
+    except Exception:
+        pass
+
+    return results
+
+
 def cosine_similarity(embedding1: List[float], embedding2: List[float]) -> float:
     """
     Calculate cosine similarity between two embedding vectors.

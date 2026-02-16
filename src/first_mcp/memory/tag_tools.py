@@ -7,7 +7,7 @@ from datetime import datetime
 import os
 from tinydb import Query
 from .database import get_tags_tinydb
-from ..embeddings import generate_embedding as _generate_embedding, cosine_similarity as _cosine_similarity, GENAI_AVAILABLE, EMBEDDING_MODEL
+from ..embeddings import generate_embedding as _generate_embedding, cosine_similarity as _cosine_similarity, GENAI_AVAILABLE, EMBEDDING_MODEL, generate_embeddings_batch as _generate_embeddings_batch
 
 
 def tinydb_register_tags(tag_list: List[str]) -> Dict[str, Any]:
@@ -304,7 +304,7 @@ def tinydb_get_all_tags() -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-def regenerate_all_tag_embeddings(delay: float = 0.3) -> Dict[str, Any]:
+def regenerate_all_tag_embeddings(batch_size: int = 20) -> Dict[str, Any]:
     """
     Service function: regenerate embeddings for ALL tags using the current model.
 
@@ -312,16 +312,15 @@ def regenerate_all_tag_embeddings(delay: float = 0.3) -> Dict[str, Any]:
     tag vectors are consistent with the model declared in embeddings.EMBEDDING_MODEL.
     This is NOT registered as an MCP tool — call it from a script or Python REPL.
 
-    Prints progress to stderr so you can see it running.
+    Uses batched API calls for efficiency. Prints progress to stderr.
 
     Args:
-        delay: Seconds to wait between API calls to respect rate limits. Default: 0.3
+        batch_size: Number of tags to embed per API call. Default: 20
 
     Returns:
         Dictionary with counts of processed, updated, and failed tags.
     """
     import sys
-    import time
     from ..embeddings import EMBEDDING_DIMENSIONS
 
     api_available = GENAI_AVAILABLE and bool(os.getenv('GOOGLE_API_KEY'))
@@ -344,37 +343,33 @@ def regenerate_all_tag_embeddings(delay: float = 0.3) -> Dict[str, Any]:
             tags_db.close()
             return {"success": True, "message": "No tags found.", "processed": 0, "updated": 0, "failed": 0}
 
-        print(f"Regenerating embeddings for {total} tags (model: {EMBEDDING_MODEL})...", file=sys.stderr)
+        tag_names = [t.get('tag', '') for t in all_tags]
+        print(f"Regenerating embeddings for {total} tags in batches of {batch_size} (model: {EMBEDDING_MODEL})...", file=sys.stderr)
+
+        embeddings = _generate_embeddings_batch(tag_names, batch_size=batch_size)
 
         updated = 0
         failed = 0
         failed_tags = []
+        now = datetime.now().isoformat()
 
-        for i, tag_record in enumerate(all_tags, start=1):
-            tag_name = tag_record.get('tag', '')
-            embedding = _generate_embedding(tag_name)
-
+        for tag_name, embedding in zip(tag_names, embeddings):
             if embedding and len(embedding) == EMBEDDING_DIMENSIONS:
                 tags_table.update(
                     {
                         'embedding': embedding,
-                        'embedding_generated_at': datetime.now().isoformat(),
+                        'embedding_generated_at': now,
                         'embedding_model': EMBEDDING_MODEL
                     },
                     Record.tag == tag_name
                 )
                 updated += 1
-                print(f"  [{i}/{total}] ✓ {tag_name}", file=sys.stderr)
             else:
                 failed += 1
                 failed_tags.append(tag_name)
-                print(f"  [{i}/{total}] ✗ {tag_name} (failed)", file=sys.stderr)
-
-            if i < total:
-                time.sleep(delay)
 
         tags_db.close()
-        print(f"Done. Updated: {updated}, Failed: {failed}", file=sys.stderr)
+        print(f"Done. Updated: {updated}/{total}, Failed: {failed}", file=sys.stderr)
 
         result: Dict[str, Any] = {
             "success": True,

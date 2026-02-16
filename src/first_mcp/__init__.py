@@ -61,12 +61,12 @@ DEVELOPMENT PHILOSOPHY:
 Author: Torbjørn Wikestad <torbjorn.wikestad@gmail.com>
 """
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 __author__ = "Torbjørn Wikestad"
 __email__ = "torbjorn.wikestad@gmail.com"
 
 # Version info tuple for programmatic access
-VERSION = (1, 2, 0)
+VERSION = (1, 2, 1)
 
 # Package metadata
 PACKAGE_NAME = "first-mcp"
