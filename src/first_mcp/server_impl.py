@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional, Union
 from .weather import WeatherAPI, GeocodingAPI
 from .fileio import WorkspaceManager
 from .calculate import Calculator, TimedeltaCalculator
+from .embeddings import compute_text_similarity as _compute_text_similarity, rank_texts_by_similarity as _rank_texts_by_similarity
 
 # Always import TinyDB components for fallback functions
 from tinydb import TinyDB, Query
@@ -2263,6 +2264,65 @@ This memory serves as your initialization checklist. Search for 'session-start' 
         
     except Exception as e:
         print(f"✗ Fresh install initialization failed: {e}", file=sys.stderr)
+
+@mcp.tool()
+def compute_text_similarity(
+    query: str,
+    text: str,
+    context: str = "",
+    text_weight: float = 0.7,
+    context_weight: float = 0.3
+) -> Dict[str, Any]:
+    """
+    Compute semantic similarity between a query and a text, with optional context weighting.
+
+    Returns a cosine similarity score in [0.0, 1.0]. When context is provided,
+    the text and context embeddings are blended (weighted sum, then re-normalized)
+    before comparison — so the text is evaluated in light of its surrounding context
+    while still being the primary focus.
+
+    Useful for:
+    - Simple query vs. text comparison (no context)
+    - Matching a semantic label against a passage situated within a larger text
+      (e.g. comparing a tag like "grace_follows_faith" against a verse within its pericope)
+
+    Requires GOOGLE_API_KEY environment variable.
+
+    Args:
+        query: Reference text or semantic label to compare against
+        text: Primary text to evaluate (e.g. a verse or sentence)
+        context: Optional surrounding context (e.g. a pericope). Ignored if empty.
+        text_weight: Weight for the text embedding when context is used. Default: 0.7
+        context_weight: Weight for the context embedding. Default: 0.3
+
+    Returns:
+        Dictionary with similarity score and request metadata
+    """
+    result = _compute_text_similarity(query, text, context, text_weight, context_weight)
+    return add_server_timestamp(result)
+
+
+@mcp.tool()
+def rank_texts_by_similarity(query: str, candidates: List[str]) -> Dict[str, Any]:
+    """
+    Rank a list of texts by semantic similarity to a query text.
+
+    Embeds the query and each candidate, then returns them sorted by
+    descending cosine similarity. Useful for finding the most relevant
+    option from a set of alternatives.
+
+    Requires GOOGLE_API_KEY environment variable.
+
+    Args:
+        query: Reference text to compare against
+        candidates: List of texts to rank (order does not matter)
+
+    Returns:
+        Dictionary with candidates ranked by descending similarity score
+    """
+    result = _rank_texts_by_similarity(query, candidates)
+    return add_server_timestamp(result)
+
 
 def main():
     """Main entry point for the MCP server."""
