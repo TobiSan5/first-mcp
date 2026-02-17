@@ -135,6 +135,93 @@ class WorkspaceManager:
         except Exception as e:
             return {"error": f"Failed to store file: {str(e)}"}
     
+    def edit_text_file(self, filename: str, mode: str, content: str, anchor: str = "") -> Dict[str, Any]:
+        """
+        Edit an existing text file using anchor-based positioning.
+
+        Modes:
+            append        - Add content to the end of the file
+            prepend       - Add content to the beginning of the file
+            insert_after  - Insert content immediately after the first occurrence of anchor
+            insert_before - Insert content immediately before the first occurrence of anchor
+            replace       - Replace the first occurrence of anchor with content
+            replace_all   - Replace all occurrences of anchor with content
+
+        Args:
+            filename: Name of the file to edit
+            mode: One of append, prepend, insert_after, insert_before, replace, replace_all
+            content: Text to insert or use as replacement
+            anchor: Reference text for positioning (required for insert_after, insert_before,
+                    replace, replace_all)
+
+        Returns:
+            Dictionary with operation result
+        """
+        ANCHOR_MODES = {"insert_after", "insert_before", "replace", "replace_all"}
+        VALID_MODES = {"append", "prepend"} | ANCHOR_MODES
+
+        if not filename or '..' in filename or filename.startswith('/'):
+            return {"error": "Invalid filename. Avoid path traversal characters."}
+
+        if mode not in VALID_MODES:
+            return {"error": f"Invalid mode '{mode}'. Must be one of: {', '.join(sorted(VALID_MODES))}"}
+
+        if mode in ANCHOR_MODES and not anchor:
+            return {"error": f"Mode '{mode}' requires an anchor string."}
+
+        file_path = os.path.join(self.workspace_path, filename)
+
+        if not os.path.exists(file_path):
+            return {"error": f"File '{filename}' not found in workspace"}
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                original = f.read()
+
+            if mode == "append":
+                updated = original + content
+            elif mode == "prepend":
+                updated = content + original
+            elif mode == "insert_after":
+                idx = original.find(anchor)
+                if idx == -1:
+                    return {"error": f"Anchor string not found in '{filename}'."}
+                insert_pos = idx + len(anchor)
+                updated = original[:insert_pos] + content + original[insert_pos:]
+            elif mode == "insert_before":
+                idx = original.find(anchor)
+                if idx == -1:
+                    return {"error": f"Anchor string not found in '{filename}'."}
+                updated = original[:idx] + content + original[idx:]
+            elif mode == "replace":
+                if anchor not in original:
+                    return {"error": f"Anchor string not found in '{filename}'."}
+                updated = original.replace(anchor, content, 1)
+            elif mode == "replace_all":
+                if anchor not in original:
+                    return {"error": f"Anchor string not found in '{filename}'."}
+                replacement_count = original.count(anchor)
+                updated = original.replace(anchor, content)
+
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(updated)
+
+            self._update_file_metadata(filename)
+
+            result = {
+                "success": True,
+                "filename": filename,
+                "mode": mode,
+                "size_bytes": len(updated.encode('utf-8')),
+                "message": f"File '{filename}' updated successfully ({mode})"
+            }
+            if mode == "replace_all":
+                result["replacements"] = replacement_count
+            return result
+
+        except Exception as e:
+            return {"error": f"Failed to edit file: {str(e)}"}
+
     def read_text_file(self, filename: str) -> Dict[str, Any]:
         """
         Read a text file from the workspace.

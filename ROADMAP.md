@@ -28,7 +28,7 @@ The following features were designed and partially implemented but never complet
 
 These ideas remain valid — tag proliferation is a known problem — but the implementation was abandoned before testing. The stash is preserved as `stash@{0}` on branch `feature/v1.1.1-tag-limit`.
 
-### v1.2.0 ✅ Released (current `main`)
+### v1.2.0 ✅ Released
 New `embeddings.py` data layer and two MCP tools for semantic similarity scoring:
 - **`compute_text_similarity(query, text, context?, text_weight?, context_weight?)`** — cosine similarity with optional context blending via weighted embedding average
 - **`rank_texts_by_similarity(query, candidates)`** — rank a list of texts by relevance to a query
@@ -36,6 +36,35 @@ New `embeddings.py` data layer and two MCP tools for semantic similarity scoring
 - `tag_tools.py` and `semantic_search.py` refactored to import from `embeddings.py` (no duplication)
 - `--version` / `-V` CLI flag — prints version and exits cleanly
 - Data processing tests (20) and MCP layer tests (5) — all passing
+
+### v1.2.1 ✅ Released
+Embedding model migration and batch API efficiency:
+- Switched from `text-embedding-004` (unavailable) to `gemini-embedding-001` (3072-dim)
+- Added `generate_embeddings_batch()` — embeds a list of texts per API call instead of one call per text
+- `regenerate_all_tag_embeddings()` rewritten to use batched calls
+- Added `google-genai` and `numpy` as `[embeddings]` optional dependency in `pyproject.toml`
+
+### v1.2.2 ✅ Released (current `main`)
+Auto-migration of tag embeddings at startup:
+- Added `check_and_migrate_tag_embeddings()` service function — compares stored `embedding_model` field on tag records against `EMBEDDING_MODEL` constant; triggers batch regeneration automatically if mismatched
+- Wired into `main()` startup sequence — future embedding model changes are self-healing
+- Removed roadmap duplication: `__init__.py` now contains only a brief package description; `ROADMAP.md` is the single source of truth
+
+### v1.3.0 ✅ Released
+New tools extending workspace and adding biblical text lookup:
+- **`workspace_edit_textfile(filename, mode, content, anchor?)`** — anchor-based in-place text editing with six modes: `append`, `prepend`, `insert_after`, `insert_before`, `replace`, `replace_all`. Designed for long-running MCP tasks that build composite outputs incrementally. No line numbers needed — the client reads the file first and uses a nearby text string as the anchor.
+- **`bible_lookup(reference, bible_version?)`** — looks up ESV biblical text by reference string. Supports single verses (`"John 3:16"`), verse ranges (`"Matt 5:3-12"`), full chapters (`"Ps 23"`), chapter ranges (`"Gen 1-4"`), and semicolon-separated multi-references. Bible data (ESV) is downloaded automatically from `github.com/lguenth/mdbible` on first use and cached locally under `$FIRST_MCP_DATA_PATH/bible_data/ESV/`. The version parameter is designed for future translation support.
+- **`src/first_mcp/bible/`** — new subpackage: `canonical.py`, `sources.py` (ESVBibleDownloader), `books.py` (VerseAccessor, spaCy-free markdown parser), `lookup.py` (BibleLookup with per-version accessor cache). Wesley sermon support deliberately excluded to avoid web-scraping dependencies.
+- Bug fix: `normalize_book_name()` now correctly round-trips canonical names containing Roman numerals (e.g. `"II_Samuel"` was incorrectly returning `"Ii_Samuel"` via `.title()`)
+- Tests: 18 data-processing tests for workspace edit, 29 data-processing tests for bible module, MCP-layer tests for both tools
+
+### v1.3.0 ✅ Released
+New tools extending workspace and adding biblical text lookup:
+- **`workspace_edit_textfile(filename, mode, content, anchor?)`** — anchor-based in-place text editing with six modes: `append`, `prepend`, `insert_after`, `insert_before`, `replace`, `replace_all`. Designed for long-running MCP tasks that build composite outputs incrementally. No line numbers needed — the client reads the file first and uses a nearby text string as the anchor.
+- **`bible_lookup(reference, bible_version?)`** — looks up ESV biblical text by reference string. Supports single verses, verse ranges, full chapters, chapter ranges, and semicolon-separated multi-references. Bible data (ESV) is downloaded automatically from `github.com/lguenth/mdbible` on first use and cached under `$FIRST_MCP_DATA_PATH/bible_data/ESV/`. The version parameter is designed for future translation support.
+- **`src/first_mcp/bible/`** — new subpackage: `canonical.py`, `sources.py` (ESVBibleDownloader), `books.py` (VerseAccessor, spaCy-free markdown parser), `lookup.py` (BibleLookup with per-version accessor cache). Wesley sermon support deliberately excluded to avoid web-scraping dependencies.
+- Bug fix: `normalize_book_name()` now correctly round-trips canonical names containing Roman numerals (e.g. `"II_Samuel"` was incorrectly returning `"Ii_Samuel"` via `.title()`)
+- Tests: 18 data-processing tests for workspace edit, 29 for bible module, MCP-layer tests for both tools
 
 ## Version 2.0 - Modular Architecture 🚧
 

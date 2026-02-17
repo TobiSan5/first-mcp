@@ -11,6 +11,7 @@ from .weather import WeatherAPI, GeocodingAPI
 from .fileio import WorkspaceManager
 from .calculate import Calculator, TimedeltaCalculator
 from .embeddings import compute_text_similarity as _compute_text_similarity, rank_texts_by_similarity as _rank_texts_by_similarity
+from .bible import bible_lookup as _bible_lookup
 
 # Always import TinyDB components for fallback functions
 from tinydb import TinyDB, Query
@@ -1579,6 +1580,45 @@ def read_workspace_file(filename: str) -> Dict[str, Any]:
         return add_server_timestamp(result)
 
 @mcp.tool()
+def workspace_edit_textfile(filename: str, mode: str, content: str, anchor: str = "") -> Dict[str, Any]:
+    """
+    Edit an existing text file in the workspace using anchor-based positioning.
+
+    Call read_workspace_file first to inspect the file and identify a suitable
+    anchor string near the intended edit point.
+
+    Modes:
+        append        - Add content to the end of the file. No anchor needed.
+        prepend       - Add content to the beginning of the file. No anchor needed.
+        insert_after  - Insert content immediately after the first occurrence of anchor.
+        insert_before - Insert content immediately before the first occurrence of anchor.
+        replace       - Replace the first occurrence of anchor with content.
+        replace_all   - Replace all occurrences of anchor with content.
+
+    Args:
+        filename: Name of the workspace file to edit
+        mode: Edit mode — one of: append, prepend, insert_after, insert_before, replace, replace_all
+        content: Text to insert or use as replacement
+        anchor: Exact string from the file used as the reference point for positioning.
+                Required for insert_after, insert_before, replace, and replace_all.
+                Ignored for append and prepend.
+
+    Returns:
+        Dictionary with operation result including updated file size
+    """
+    try:
+        result = workspace_manager.edit_text_file(
+            filename=filename,
+            mode=mode,
+            content=content,
+            anchor=anchor
+        )
+        return add_server_timestamp(result)
+    except Exception as e:
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
+
+@mcp.tool()
 def list_workspace_files(filter_tags: str = "") -> Dict[str, Any]:
     """
     List all files in the workspace directory with their metadata.
@@ -1667,6 +1707,40 @@ def get_workspace_info() -> Dict[str, Any]:
     except Exception as e:
         result = {"error": str(e)}
         return add_server_timestamp(result)
+
+@mcp.tool()
+def bible_lookup(reference: str, bible_version: str = "ESV") -> Dict[str, Any]:
+    """
+    Look up biblical text by reference.
+
+    Bible text is downloaded automatically from github.com/lguenth/mdbible on first
+    use and cached locally. Subsequent calls are served from the local cache.
+
+    Args:
+        reference: Biblical reference string. Supports:
+            - "Gen 1:1"                   Single verse
+            - "Gen 1:1-10"               Verse range
+            - "Gen 1"                     Entire chapter
+            - "Gen 1-4"                   Chapter range
+            - "John 3:16; Rom 6:23"       Multiple references (semicolon separated)
+            Common abbreviations are accepted for all 66 books.
+        bible_version: Translation to use. Default "ESV". Currently only "ESV"
+                       is supported.
+
+    Returns:
+        Dictionary with reference, version, and list of verse objects
+    """
+    try:
+        verses = _bible_lookup(reference, version=bible_version)
+        return add_server_timestamp({
+            "success": True,
+            "reference": reference,
+            "version": bible_version,
+            "verse_count": len(verses),
+            "verses": [{"reference": ref, "text": text} for ref, text in verses],
+        })
+    except Exception as e:
+        return add_server_timestamp({"error": str(e)})
 
 @mcp.tool()
 def get_calendar(year: int, month: int) -> Dict[str, Any]:
