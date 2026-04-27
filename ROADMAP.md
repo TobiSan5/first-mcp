@@ -61,10 +61,22 @@ New tools extending workspace and adding biblical text lookup:
 ### v1.3.0 ✅ Released
 New tools extending workspace and adding biblical text lookup:
 - **`workspace_edit_textfile(filename, mode, content, anchor?)`** — anchor-based in-place text editing with six modes: `append`, `prepend`, `insert_after`, `insert_before`, `replace`, `replace_all`. Designed for long-running MCP tasks that build composite outputs incrementally. No line numbers needed — the client reads the file first and uses a nearby text string as the anchor.
-- **`bible_lookup(reference, bible_version?)`** — looks up ESV biblical text by reference string. Supports single verses, verse ranges, full chapters, chapter ranges, and semicolon-separated multi-references. Bible data (ESV) is downloaded automatically from `github.com/lguenth/mdbible` on first use and cached under `$FIRST_MCP_DATA_PATH/bible_data/ESV/`. The version parameter is designed for future translation support.
+- **`bible_lookup(reference, bible_version?)`** — looks up ESV biblical text by reference string. Supports single verses (`"John 3:16"`), verse ranges (`"Matt 5:3-12"`), full chapters (`"Ps 23"`), chapter ranges (`"Gen 1-4"`), and semicolon-separated multi-references. Bible data (ESV) is downloaded automatically from `github.com/lguenth/mdbible` on first use and cached locally under `$FIRST_MCP_DATA_PATH/bible_data/ESV/`. The version parameter is designed for future translation support.
 - **`src/first_mcp/bible/`** — new subpackage: `canonical.py`, `sources.py` (ESVBibleDownloader), `books.py` (VerseAccessor, spaCy-free markdown parser), `lookup.py` (BibleLookup with per-version accessor cache). Wesley sermon support deliberately excluded to avoid web-scraping dependencies.
 - Bug fix: `normalize_book_name()` now correctly round-trips canonical names containing Roman numerals (e.g. `"II_Samuel"` was incorrectly returning `"Ii_Samuel"` via `.title()`)
-- Tests: 18 data-processing tests for workspace edit, 29 for bible module, MCP-layer tests for both tools
+- Tests: 18 data-processing tests for workspace edit, 29 data-processing tests for bible module, MCP-layer tests for both tools
+
+### v1.4.0 ✅ Released
+Memory retrieval: soft tag scoring, pagination, improved tool guidance:
+- **`src/first_mcp/memory/tag_scoring.py`** (new) — soft tag-to-tag cosine similarity scoring. `build_tag_registry()` loads all tag embeddings from TinyDB; `score_memories_by_tags()` ranks memories by summed cosine similarity between query tags and memory tags using an adaptive per-query-tag threshold (`mean + 0.5×std`; falls back to fixed `0.5` when std ≈ 0). Resolves vocabulary-mismatch failures (e.g. querying "scheduling" now surfaces memories tagged "timetabling").
+- **`src/first_mcp/memory/pagination.py`** (new) — persistent pagination layer. Full result sets stored in `{FIRST_MCP_DATA_PATH}/_paginated/{uuid}.json`; callers receive a `next_page_token` and fetch subsequent pages on demand without re-running the query. Stale files cleaned up at server startup.
+- **`tinydb_search_memories`** updated — new `page_size=5` parameter; uses soft tag scoring when tag embeddings are available (falls back to string expansion, then exact match); returns `has_more`, `next_page_token`, `scoring_method`.
+- **`tinydb_list_memories`** updated — new `page_size=10` parameter; same pagination contract.
+- **`memory_next_page`** (new MCP tool) — fetches the next page from a cached result set by `next_page_token`; tokens invalidated at server restart.
+- All memory tool docstrings rewritten to guide clients toward tag-first retrieval and incremental pagination.
+- Bug fix: `@mcp.tool()` replaces decorated names with non-callable `FunctionTool` objects; `memory_workflow_guide`'s internal call to `tinydb_search_memories` was silently failing. Fixed by capturing `_search_memories_fn` before any `@mcp.tool()` definitions.
+- Bug fix: memories stored without a category have `{"category": null}` in JSON — `dict.get('category', '')` returns `None` (not `''`) when the key exists but is null. Fixed with `(m.get('category') or '').lower()` in `memory_tools.py` and `server_impl.py`.
+- Tests: 20 data-processing tests (`TestPagination`, `TestTagScoring`), 9 server-implementation tests including end-to-end pagination round-trip and `memory_workflow_guide` regression.
 
 ## Version 2.0 - Modular Architecture 🚧
 

@@ -302,7 +302,7 @@ def tinydb_search_memories(query: str = "", tags: str = "", category: str = "",
             if category:
                 filtered_results = [
                     memory for memory in filtered_results
-                    if memory.get('category', '').lower() == category.strip().lower()
+                    if (memory.get('category') or '').lower() == category.strip().lower()
                 ]
             
             # Sort by importance (descending), then by creation time (most recent first)

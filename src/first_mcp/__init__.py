@@ -14,11 +14,11 @@ GitHub: https://github.com/TobiSan5/first-mcp
 Author: Torbjørn Wikestad <torbjorn.wikestad@gmail.com>
 """
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 __author__ = "Torbjørn Wikestad"
 __email__ = "torbjorn.wikestad@gmail.com"
 
-VERSION = (1, 3, 0)
+VERSION = (1, 4, 0)
 
 PACKAGE_NAME = "first-mcp"
 DESCRIPTION = "A comprehensive MCP (Model Context Protocol) server with memory, workspace, weather, and utility tools"

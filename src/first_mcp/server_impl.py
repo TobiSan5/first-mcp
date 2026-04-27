@@ -23,19 +23,28 @@ try:
     # Try to import from the memory package if available
     from .memory import (
         get_memory_tinydb, get_tags_tinydb, get_categories_tinydb, get_custom_tinydb,
-        tinydb_memorize as tinydb_memorize_impl, tinydb_recall_memory, tinydb_search_memories, 
+        tinydb_memorize as tinydb_memorize_impl, tinydb_recall_memory, tinydb_search_memories,
         tinydb_list_memories, tinydb_update_memory, tinydb_delete_memory,
         tinydb_get_memory_categories, memory_workflow_guide,
         tinydb_find_similar_tags, tinydb_get_all_tags,
         find_similar_tags_internal, check_category_exists,
         tinydb_create_database, tinydb_store_data, tinydb_query_data,
         tinydb_update_data, tinydb_delete_data, tinydb_list_databases,
-        tinydb_get_database_info
+        tinydb_get_database_info,
+        save_paginated_results, get_next_page, cleanup_paginated_files,
+        build_tag_registry, score_memories_by_tags,
     )
     MEMORY_PACKAGE_AVAILABLE = True
 except ImportError:
     # Fallback: use legacy inline implementation
     MEMORY_PACKAGE_AVAILABLE = False
+
+# Capture raw callable references before @mcp.tool() decorators overwrite the names
+# with FunctionTool objects.  These are used for internal (non-MCP) calls.
+if MEMORY_PACKAGE_AVAILABLE:
+    _search_memories_fn = tinydb_search_memories   # from .memory import above
+else:
+    _search_memories_fn = None
 
 # Server timestamp helper function
 def add_server_timestamp(response: Dict[str, Any]) -> Dict[str, Any]:
@@ -405,24 +414,44 @@ def get_weather(latitude: float, longitude: float) -> Dict[str, Any]:
 @mcp.tool()
 def memory_workflow_guide() -> Dict[str, Any]:
     """
-    Get comprehensive memory management guidance including stored best practices and workflow steps.
-    
-    This is the primary memory guidance tool that combines:
-    - Stored best practices from your TinyDB memory system
-    - Complete step-by-step workflow for optimal memory management
-    - System recommendations and troubleshooting guides
-    
-    CRITICAL: Use this tool first when working with memory to get both stored and system guidance.
-    
-    Returns:
-        Dictionary with stored practices, workflow steps, and comprehensive best practices
+    Returns the recommended workflow for using the memory system, including any stored
+    personal best practices.  Call this at the start of a session if you are unsure
+    how to search or store memories.
+
+    RETRIEVAL WORKFLOW
+    ------------------
+    Tags are the primary retrieval mechanism — not free-text content search.
+    The search engine scores memories by tag-embedding similarity, so a query for
+    "scheduling" will surface a memory tagged "timetabling" even if the word never
+    appears in the content.
+
+    Recommended steps when looking for something:
+      1. If unsure what tags exist, call tinydb_find_similar_tags or tinydb_get_all_tags.
+      2. Call tinydb_search_memories with 2-4 relevant tags and the default page_size.
+      3. If total_found > returned_count, call memory_next_page repeatedly to expand
+         context one page at a time — stop when you have enough, not at the end.
+      4. Use tinydb_list_memories (browse by importance) only when you have no specific tags.
+
+    STORAGE WORKFLOW
+    ----------------
+    Tags chosen at storage time determine how easily a memory can be found later.
+      - Prefer specific, concrete tags: "ergatax", "websockets", "oslo" rather than
+        "software", "technology", "location".
+      - 2-4 tags per memory is usually right.  Smart tag mapping consolidates synonyms
+        automatically, so "timetabling" and "scheduling" may be merged.
+      - Set importance=4 or 5 for memories that should always surface first.
+
+    SESSION START
+    -------------
+    Call tinydb_search_memories with tags="session-start" to load any preferences or
+    workflows that have been stored for session initialisation.
     """
     # Get stored best practices from TinyDB memory system
     stored_guidelines = []
     try:
-        stored_practices_result = tinydb_search_memories(
+        stored_practices_result = _search_memories_fn(
             category="best_practices",
-            limit=20
+            limit=20,
         )
         
         if stored_practices_result.get("success") and stored_practices_result.get("memories"):
@@ -709,20 +738,24 @@ def memory_workflow_guide() -> Dict[str, Any]:
 def tinydb_memorize(content: str, tags: str = "", category: str = "", 
                    importance: int = 3, expires_at: str = "") -> Dict[str, Any]:
     """
-    Store information using TinyDB (tinydb_memories.json) - HIGH PERFORMANCE VERSION.
-    
-    This is a TinyDB-based version of memorize() with better performance and reliability.
-    Identical API to memorize() but uses dedicated tinydb_memories.json file.
-    
+    Store information in long-term memory.
+
+    TAGS ARE HOW YOU FIND THIS LATER.  The retrieval system scores memories by
+    tag-embedding similarity, so a memory is only findable if it carries the right
+    tags.  Choose 2-4 specific, concrete tags that capture the key concepts —
+    proper nouns, domain terms, project names.  Avoid generic tags like "info" or
+    "note".  Smart tag mapping consolidates near-synonyms automatically.
+
     Args:
-        content: The information to memorize
-        tags: Comma-separated tags for categorization
-        category: Memory category (user_context, preferences, projects, etc.)
-        importance: Importance level 1-5 (5 being most critical)
-        expires_at: Optional expiration date in ISO format
-        
-    Returns:
-        Dictionary with memory ID and storage confirmation
+        content: The information to store.  Can be long; the full text is preserved.
+        tags: Comma-separated tags — these are the primary retrieval key.
+              Good: "ergatax,higher-education,norway"
+              Weak: "software,project,work"
+        category: Broad organisational category (e.g. "projects", "preferences",
+                  "user_context", "facts", "reminders").  Secondary to tags.
+        importance: 1-5.  High-importance memories (4-5) surface first in results.
+                    Default is 3.
+        expires_at: ISO datetime after which the memory is hidden (optional).
     """
     try:
         import uuid
@@ -804,13 +837,14 @@ def tinydb_memorize(content: str, tags: str = "", category: str = "",
 @mcp.tool()
 def tinydb_recall_memory(memory_id: str) -> Dict[str, Any]:
     """
-    Retrieve a specific memorized item by ID using TinyDB.
-    
+    Fetch a single memory by its exact ID.
+
+    Use this when you already have a memory_id from a previous search result and
+    want its full content without running another search.  For finding memories
+    by topic, use tinydb_search_memories instead.
+
     Args:
-        memory_id: The ID of the memory to retrieve
-        
-    Returns:
-        Dictionary with memory details or error
+        memory_id: The UUID from a previous tinydb_memorize or search result.
     """
     try:
         memory_db = get_memory_tinydb()
@@ -851,46 +885,55 @@ def tinydb_recall_memory(memory_id: str) -> Dict[str, Any]:
         return add_server_timestamp(result)
 
 @mcp.tool()
-def tinydb_search_memories(query: str = "", tags: str = "", category: str = "", 
-                          limit: int = 10, semantic_search: bool = True) -> Dict[str, Any]:
+def tinydb_search_memories(query: str = "", tags: str = "", category: str = "",
+                          limit: int = 50, semantic_search: bool = True,
+                          page_size: int = 5) -> Dict[str, Any]:
     """
-    Search memorized information using TinyDB with advanced filtering and semantic tag awareness.
-    
-    RECOMMENDED SESSION START: Search for tags='session-start' to load behavioral preferences and workflows.
-    
-    SEMANTIC ENHANCEMENT: When semantic_search=True (default), this tool automatically:
-    - Finds similar existing tags if provided tags don't match exactly
-    - Returns helpful error with available categories if invalid category provided
-    - This makes tag-based search much more effective with approximate terms
-    
-    Args:
-        query: Text to search for in memory content
-        tags: Comma-separated tags to filter by (semantic expansion when enabled)
-        category: Category to filter by (exact match required - error shows available categories)
-        limit: Maximum number of results (default: 10)
-        semantic_search: Enable semantic tag expansion (default: True)
-        
-    Returns:
-        Dictionary with search results sorted by importance, or error with available categories if invalid category
-        
-    Examples:
-        - Session initialization: {"tags": "session-start"}
-        - General search: {"query": "python frameworks", "tags": "programming", "limit": 5}
+    Search memories by tag similarity.  This is the primary retrieval tool.
+
+    HOW TO USE
+    ----------
+    Provide 2-4 tags that describe what you are looking for.  The system scores
+    every stored memory by how closely its tags match yours — using embedding
+    similarity, not exact string matching — so "scheduling" will find a memory
+    tagged "timetabling", and "ml" will find one tagged "machine-learning".
+
+    The response includes a small first page (default 5).  If total_found is larger
+    than returned_count, call memory_next_page(next_page_token) to load the next
+    page.  Repeat until you have enough context or has_more is False.  This lets
+    you expand context one step at a time without committing to large up-front
+    transfers.
+
+    If you are unsure which tags to use, call tinydb_find_similar_tags first to
+    see what vocabulary already exists in the memory store.
+
+    PARAMETERS
+    ----------
+    tags          Comma-separated tags — the primary search signal.
+                  Example: "ergatax,higher-education"
+    query         Optional keyword filter applied to memory content.  Secondary to
+                  tags; works best as a narrow disambiguator, not the main search.
+    category      Optional exact-match category filter ("projects", "preferences", …).
+                  Call tinydb_get_memory_categories to see available values.
+    page_size     Results in the first response (default 5).  Keep this small and
+                  use memory_next_page to expand — this avoids filling the context
+                  window with results you may not need.
+    limit         Hard cap on total memories considered across all pages (default 50).
+    semantic_search  True (default) uses tag-embedding scoring.  False uses exact
+                  tag matching only — faster but misses vocabulary variation.
+
+    SESSION START
+    -------------
+    Call with tags="session-start" to load stored preferences and workflows.
     """
     try:
         from datetime import datetime
-        
+
         memory_db = get_memory_tinydb()
         try:
             memories_table = memory_db.table('memories')
-            Record = Query()
-            
-            # Semantic search expansion (tags only) and category validation
-            original_tags = tags
-            original_category = category
-            expanded_tags = []
-            
-            # Validate category exists if provided
+
+            # Validate category if provided
             if category:
                 category_exists, category_error, existing_categories = check_category_exists(category)
                 if not category_exists:
@@ -898,182 +941,232 @@ def tinydb_search_memories(query: str = "", tags: str = "", category: str = "",
                     result = {
                         "success": False,
                         "error": category_error,
-                        "available_categories": existing_categories
+                        "available_categories": existing_categories,
                     }
                     return add_server_timestamp(result)
-            
-            # Semantic tag expansion (if enabled)
-            if semantic_search and tags:
-                input_tags = [tag.strip() for tag in tags.split(',') if tag.strip()]
-                all_expanded = set(input_tags)  # Start with original tags
-                
-                for tag in input_tags:
-                    similar_tags = find_similar_tags_internal(tag, limit=3, min_similarity=0.4)
-                    all_expanded.update(similar_tags)
-                
-                expanded_tags = list(all_expanded)
-            
-            # Start with all memories
-            results = memories_table.all()
-            
-            # Filter out expired memories
+
+            # Load and filter expired memories
             current_time = datetime.now()
-            active_results = []
-            for memory in results:
+            all_memories = []
+            for memory in memories_table.all():
                 if memory.get('expires_at'):
                     try:
                         expiry = datetime.fromisoformat(memory['expires_at'].replace('Z', '+00:00'))
-                        if current_time <= expiry:
-                            active_results.append(memory)
-                    except:
-                        active_results.append(memory)  # Keep if date parsing fails
-                else:
-                    active_results.append(memory)
-            
-            # Apply filters
-            filtered_results = active_results
-            
-            # Content query filter
-            if query:
-                query_words = [word.lower().strip() for word in query.split() if word.strip()]
-                filtered_results = [
-                    memory for memory in filtered_results
-                    if all(word in memory['content'].lower() for word in query_words)
-                ]
-            
-            # Tags filter (with semantic expansion)
-            if tags:
-                if semantic_search and expanded_tags:
-                    # Use expanded tags for better matching
-                    filter_tags = [tag.lower() for tag in expanded_tags]
-                else:
-                    # Use original tags
-                    filter_tags = [tag.strip().lower() for tag in tags.split(',') if tag.strip()]
-                    
-                filtered_results = [
-                    memory for memory in filtered_results
-                    if any(filter_tag in memory.get('tags', []) for filter_tag in filter_tags)
-                ]
-            
-            # Category filter (exact matching only - category validated above)
-            if category:
-                filtered_results = [
-                    memory for memory in filtered_results
-                    if memory.get('category', '').lower() == category.strip().lower()
-                ]
-            
-            # Sort by importance (descending), then by creation time (most recent first)
-            filtered_results.sort(
-                key=lambda x: (x.get('importance', 3), x.get('created_at', x.get('timestamp', ''))), 
-                reverse=True
-            )
-            
-            # Apply limit
-            final_results = filtered_results[:limit]
-            
-            # Close database before returning
+                        if current_time > expiry:
+                            continue
+                    except Exception:
+                        pass
+                all_memories.append(memory)
+
             memory_db.close()
-            
-            # Prepare semantic expansion info (tags only)
-            semantic_info = {}
-            if semantic_search:
-                semantic_info = {
-                    "enabled": True,
-                    "tag_expansion": {
-                        "original_tags": original_tags,
-                        "expanded_tags": expanded_tags if expanded_tags else None,
-                        "expansion_occurred": bool(expanded_tags and set(expanded_tags) != set(original_tags.split(',') if original_tags else []))
-                    },
-                    "category_validation": "Categories use exact matching - invalid categories return helpful error with available options"
-                }
+
+            # Content keyword filter
+            if query:
+                query_words = [w.lower().strip() for w in query.split() if w.strip()]
+                all_memories = [
+                    m for m in all_memories
+                    if all(w in m['content'].lower() for w in query_words)
+                ]
+
+            # Category filter
+            if category:
+                all_memories = [
+                    m for m in all_memories
+                    if (m.get('category') or '').lower() == category.strip().lower()
+                ]
+
+            # Tag-based scoring (primary) or legacy expansion (fallback)
+            scored_method = "none"
+            if tags:
+                input_tags = [t.strip().lower() for t in tags.split(',') if t.strip()]
+
+                if semantic_search and MEMORY_PACKAGE_AVAILABLE:
+                    tag_registry = build_tag_registry()
+                    if tag_registry:
+                        scored = score_memories_by_tags(input_tags, all_memories, tag_registry)
+                        # scored = list of (rank_score, memory, matched_tags)
+                        filtered_results = [mem for (_, mem, _) in scored][:limit]
+                        scored_method = "tag_scoring"
+                    else:
+                        # Registry empty — fall back to string expansion
+                        expanded = set(input_tags)
+                        for t in input_tags:
+                            expanded.update(find_similar_tags_internal(t, limit=3, min_similarity=0.4))
+                        filter_tags = [t.lower() for t in expanded]
+                        filtered_results = [
+                            m for m in all_memories
+                            if any(ft in m.get('tags', []) for ft in filter_tags)
+                        ][:limit]
+                        scored_method = "string_expansion"
+                else:
+                    # Exact tag match
+                    filter_tags = input_tags
+                    filtered_results = [
+                        m for m in all_memories
+                        if any(ft in m.get('tags', []) for ft in filter_tags)
+                    ][:limit]
+                    scored_method = "exact"
             else:
-                semantic_info = {"enabled": False}
-            
+                # No tags — sort by importance then recency
+                all_memories.sort(
+                    key=lambda x: (x.get('importance', 3), x.get('created_at', x.get('timestamp', ''))),
+                    reverse=True,
+                )
+                filtered_results = all_memories[:limit]
+                scored_method = "importance"
+
+            total_found = len(filtered_results)
+            first_page = filtered_results[:page_size]
+            has_more = total_found > page_size
+
+            next_page_token = None
+            if has_more and MEMORY_PACKAGE_AVAILABLE:
+                next_page_token = save_paginated_results(
+                    all_results=filtered_results,
+                    page_size=page_size,
+                    query_info={
+                        "query": query, "tags": tags, "category": category,
+                        "limit": limit, "semantic_search": semantic_search,
+                        "page_size": page_size,
+                    },
+                )
+
             result = {
                 "success": True,
-                "memories": final_results,
-                "total_found": len(filtered_results),
-                "returned_count": len(final_results),
+                "memories": first_page,
+                "total_found": total_found,
+                "returned_count": len(first_page),
+                "has_more": has_more,
+                "next_page_token": next_page_token,
+                "scoring_method": scored_method,
                 "search_criteria": {
                     "query": query,
                     "tags": tags,
                     "category": category,
                     "limit": limit,
-                    "semantic_search": semantic_search
+                    "page_size": page_size,
+                    "semantic_search": semantic_search,
                 },
-                "semantic_expansion": semantic_info
             }
             return add_server_timestamp(result)
+
         except Exception as e:
             memory_db.close()
             raise e
-        
+
     except Exception as e:
         result = {"error": str(e)}
         return add_server_timestamp(result)
 
 @mcp.tool()
-def tinydb_list_memories(limit: int = 20) -> Dict[str, Any]:
+def tinydb_list_memories(limit: int = 100, page_size: int = 10) -> Dict[str, Any]:
     """
-    List all memorized information using TinyDB (most important first).
-    
+    Browse all memories sorted by importance (highest first), with pagination.
+
+    Use this when you have no specific tags to search for — for example at the
+    start of a session to get a general picture of what has been stored, or when
+    exploring unfamiliar topics.  For targeted retrieval, prefer
+    tinydb_search_memories with explicit tags.
+
+    Returns a small first page (default 10).  If has_more is True, call
+    memory_next_page(next_page_token) to load the next page.  Stop when you have
+    enough context — you do not need to exhaust all pages.
+
     Args:
-        limit: Maximum number of memories to return (default: 20)
-        
-    Returns:
-        Dictionary with list of all memories
+        page_size: Results in the first response (default 10).
+        limit: Hard cap on total memories considered (default 100).
     """
     try:
         from datetime import datetime
-        
+
         memory_db = get_memory_tinydb()
         try:
             memories_table = memory_db.table('memories')
-            
-            # Get all memories
             all_memories = memories_table.all()
-            
-            # Filter out expired memories
+
             current_time = datetime.now()
             active_memories = []
             for memory in all_memories:
                 if memory.get('expires_at'):
                     try:
                         expiry = datetime.fromisoformat(memory['expires_at'].replace('Z', '+00:00'))
-                        if current_time <= expiry:
-                            active_memories.append(memory)
-                    except:
-                        active_memories.append(memory)  # Keep if date parsing fails
-                else:
-                    active_memories.append(memory)
-            
-            # Sort by importance (descending), then by creation time (most recent first)
-            active_memories.sort(
-                key=lambda x: (x.get('importance', 3), x.get('created_at', x.get('timestamp', ''))), 
-                reverse=True
-            )
-            
-            # Apply limit
-            limited_memories = active_memories[:limit]
-            
-            # Close database
+                        if current_time > expiry:
+                            continue
+                    except Exception:
+                        pass
+                active_memories.append(memory)
+
             memory_db.close()
-            
+
+            active_memories.sort(
+                key=lambda x: (x.get('importance', 3), x.get('created_at', x.get('timestamp', ''))),
+                reverse=True,
+            )
+
+            capped = active_memories[:limit]
+            total_active = len(capped)
+            first_page = capped[:page_size]
+            has_more = total_active > page_size
+
+            next_page_token = None
+            if has_more and MEMORY_PACKAGE_AVAILABLE:
+                next_page_token = save_paginated_results(
+                    all_results=capped,
+                    page_size=page_size,
+                    query_info={"limit": limit, "page_size": page_size},
+                )
+
             result = {
                 "success": True,
-                "memories": limited_memories,
-                "total_active": len(active_memories),
-                "returned_count": len(limited_memories),
-                "limit": limit
+                "memories": first_page,
+                "total_active": total_active,
+                "returned_count": len(first_page),
+                "has_more": has_more,
+                "next_page_token": next_page_token,
             }
             return add_server_timestamp(result)
+
         except Exception as e:
             memory_db.close()
             raise e
-        
+
     except Exception as e:
         result = {"error": str(e)}
         return add_server_timestamp(result)
+
+@mcp.tool()
+def memory_next_page(next_page_token: str) -> Dict[str, Any]:
+    """
+    Load the next page of results from a previous search or list call.
+
+    This is the normal way to build up context incrementally.  After any call to
+    tinydb_search_memories or tinydb_list_memories that returns has_more=True,
+    call this tool with the next_page_token from that response.  The full result
+    set is already computed and cached — this just delivers the next slice without
+    re-running the query or re-embedding anything.
+
+    Repeat until has_more is False or you judge that you have enough context.
+    There is no obligation to read all pages; stop early if the information you
+    need is already visible.
+
+    Tokens are session-scoped: they are cleaned up at server startup and cannot
+    be reused across sessions.
+
+    Args:
+        next_page_token: The token from a tinydb_search_memories or
+                         tinydb_list_memories response (or a previous
+                         memory_next_page response while has_more was True).
+    """
+    if not MEMORY_PACKAGE_AVAILABLE:
+        result = {"error": "Memory package not available — pagination requires the memory module."}
+        return add_server_timestamp(result)
+    try:
+        result = get_next_page(next_page_token)
+        return add_server_timestamp(result)
+    except Exception as e:
+        result = {"error": str(e)}
+        return add_server_timestamp(result)
+
 
 # Helper functions for TinyDB memory system
 def tinydb_register_tags(tag_list: List[str]) -> Dict[str, Any]:
@@ -1156,18 +1249,19 @@ def tinydb_update_category_usage(category: str) -> None:
 def tinydb_update_memory(memory_id: str, content: str = "", tags: str = "", 
                         category: str = "", importance: int = 0, expires_at: str = "") -> Dict[str, Any]:
     """
-    Update an existing memorized item using TinyDB.
-    
+    Modify an existing memory in place.
+
+    Only the fields you supply are changed; omit a parameter to leave it unchanged.
+    Updating tags is particularly important: if a memory is hard to find, the most
+    effective fix is to add better tags rather than rewriting the content.
+
     Args:
-        memory_id: ID of the memory to update
-        content: New content (empty = no change)
-        tags: New tags (empty = no change)
-        category: New category (empty = no change) 
-        importance: New importance level (0 = no change)
-        expires_at: New expiration date (empty = no change)
-        
-    Returns:
-        Dictionary with update confirmation
+        memory_id: ID from a previous search or memorize result.
+        content: Replacement text (leave empty to keep current content).
+        tags: Replacement tag list, comma-separated (leave empty to keep current tags).
+        category: New category (leave empty to keep current).
+        importance: New importance 1-5 (pass 0 to keep current).
+        expires_at: New expiry in ISO format (leave empty to keep current).
     """
     try:
         from datetime import datetime
@@ -1248,13 +1342,14 @@ def tinydb_update_memory(memory_id: str, content: str = "", tags: str = "",
 @mcp.tool()
 def tinydb_delete_memory(memory_id: str) -> Dict[str, Any]:
     """
-    Delete a memorized item by ID using TinyDB.
-    
+    Permanently delete a memory by ID.
+
+    Prefer updating over deleting when the information is partly correct —
+    adjust the content or tags rather than removing the record.  Use deletion for
+    information that is entirely outdated or was stored in error.
+
     Args:
-        memory_id: The ID of the memory to delete
-        
-    Returns:
-        Dictionary with deletion confirmation
+        memory_id: ID from a previous search or memorize result.
     """
     try:
         memory_db = get_memory_tinydb()
@@ -1294,10 +1389,14 @@ def tinydb_delete_memory(memory_id: str) -> Dict[str, Any]:
 @mcp.tool()
 def tinydb_get_memory_categories() -> Dict[str, Any]:
     """
-    Get available categories for organizing memories using TinyDB.
-    
-    Returns:
-        Dictionary with category information and usage statistics
+    List all categories that have been used, plus suggested standard categories.
+
+    Categories are a broad secondary axis for organising memories ("projects",
+    "preferences", "user_context", "facts", …).  Tags are the primary retrieval
+    mechanism; categories are most useful as a coarse filter on top of tag search.
+
+    Call this before passing a category argument to tinydb_search_memories to
+    confirm the exact spelling of available categories.
     """
     try:
         categories_db = get_categories_tinydb()
@@ -1359,28 +1458,22 @@ def tinydb_get_memory_categories() -> Dict[str, Any]:
 @mcp.tool()
 def tinydb_find_similar_tags(query: str, limit: int = 5, min_similarity: float = 0.3) -> Dict[str, Any]:
     """
-    Find similar existing tags for any concept or content topic using TinyDB similarity matching.
-    
-    RECOMMENDED USE: This is the primary tool for tag suggestions when storing memories.
-    Instead of creating new tags, use this to find existing similar tags first.
-    
-    CONTENT-BASED WORKFLOW:
-    1. Extract key concepts from your content (e.g., "python", "web", "api")
-    2. Call this tool for each concept to find similar existing tags
-    3. Use the suggested tags when calling tinydb_memorize()
-    
+    Find existing tags whose meaning is close to a concept you describe.
+
+    Call this before searching or storing when you are unsure which tags are
+    already in the memory store.  It bridges vocabulary gaps: if memories were
+    stored with "timetabling" and you would naturally search for "scheduling",
+    this tool reveals the mismatch so you can use the right tag.
+
+    Two uses:
+      BEFORE SEARCHING  — discover which tags to pass to tinydb_search_memories.
+      BEFORE STORING    — reuse existing tags rather than creating near-duplicates,
+                          which keeps the tag space clean and retrieval accurate.
+
     Args:
-        query: Tag, concept, or topic to find similar tags for (e.g., "programming", "web development", "machine learning")
-        limit: Maximum number of similar tags to return (default: 5)
-        min_similarity: Minimum similarity score 0.0-1.0 (default: 0.3)
-        
-    Returns:
-        Dictionary with similar tags, similarity scores, and usage statistics
-        
-    Examples:
-        - query="python" might return ["programming", "development", "coding"]
-        - query="web development" might return ["frontend", "javascript", "html"]
-        - query="machine learning" might return ["ai", "data-science", "algorithms"]
+        query: A word, phrase, or concept to match against existing tags.
+        limit: Maximum results to return (default 5).
+        min_similarity: Minimum similarity threshold 0.0–1.0 (default 0.3).
     """
     try:
         tags_db = get_tags_tinydb()
@@ -1439,10 +1532,12 @@ def tinydb_find_similar_tags(query: str, limit: int = 5, min_similarity: float =
 @mcp.tool()
 def tinydb_get_all_tags() -> Dict[str, Any]:
     """
-    Get all existing tags with usage statistics using TinyDB.
-    
-    Returns:
-        Dictionary with all tags sorted by usage frequency
+    Return every tag in the memory store, sorted by how often it has been used.
+
+    Use this at the start of a session or when planning a search to get a complete
+    picture of the tag vocabulary.  High-usage tags are the most reliable search
+    keys.  If the list is large, prefer tinydb_find_similar_tags to narrow down to
+    a specific concept instead.
     """
     try:
         tags_db = get_tags_tinydb()
@@ -2406,6 +2501,13 @@ def main():
     
     # Check for fresh install and initialize if needed
     check_and_initialize_fresh_install()
+
+    # Clean up paginated temp files from any previous session
+    if MEMORY_PACKAGE_AVAILABLE:
+        from .memory.pagination import cleanup_paginated_files as _cleanup_paginated
+        cleaned = _cleanup_paginated()
+        if cleaned:
+            print(f"✓ Cleaned {cleaned} stale paginated temp file(s)", file=sys.stderr)
 
     # Migrate tag embeddings if the embedding model has changed
     if MEMORY_PACKAGE_AVAILABLE:

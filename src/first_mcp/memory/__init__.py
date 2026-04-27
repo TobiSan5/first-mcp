@@ -75,6 +75,8 @@ from .generic_tools import (
     tinydb_get_database_info
 )
 from .tag_mapper import smart_tag_mapping
+from .pagination import save_paginated_results, get_next_page, cleanup_paginated_files
+from .tag_scoring import build_tag_registry, score_memories_by_tags
 
 __all__ = [
     # Database connections
@@ -97,5 +99,11 @@ __all__ = [
     'tinydb_get_database_info',
     
     # Smart tag mapping (production-ready)
-    'smart_tag_mapping'
+    'smart_tag_mapping',
+
+    # Pagination
+    'save_paginated_results', 'get_next_page', 'cleanup_paginated_files',
+
+    # Tag scoring
+    'build_tag_registry', 'score_memories_by_tags',
 ]
