@@ -450,6 +450,505 @@ async def test_workflow_guide_returns_all_best_practices():
         return False
 
 
+async def test_search_sort_by_date():
+    """
+    tinydb_search_memories with sort_by="date_desc" must return memories newest-
+    first (by last_modified / timestamp).  Inserts 3 memories sequentially so
+    their timestamps are naturally ordered, then verifies the response order.
+    """
+    print("\n=== Testing tinydb_search_memories sort_by date ===")
+    try:
+        import time
+        from first_mcp import server_impl
+        from fastmcp import Client
+
+        client = Client(server_impl.mcp)
+        async with client:
+            tag = "date-sort-search-test"
+            ids = []
+            for i in range(3):
+                res = await client.call_tool("tinydb_memorize", {
+                    "content": f"Date sort search memory {i}.",
+                    "tags": tag,
+                    "importance": 3,
+                })
+                ids.append(res.data.get("memory_id"))
+                time.sleep(0.05)  # ensure distinct timestamps
+
+            # date_desc — most recently inserted should come first
+            result = await client.call_tool("tinydb_search_memories", {
+                "tags": tag,
+                "sort_by": "date_desc",
+                "semantic_search": False,
+                "page_size": 10,
+            })
+            data = result.data
+
+        if not data.get("success"):
+            print(f"❌ Search failed: {data.get('error')}")
+            return False
+
+        required = ["scoring_method", "search_criteria"]
+        missing = [k for k in required if k not in data]
+        if missing:
+            print(f"❌ Missing keys: {missing}")
+            return False
+
+        if data["search_criteria"].get("sort_by") != "date_desc":
+            print(f"❌ sort_by not echoed in search_criteria: {data['search_criteria']}")
+            return False
+
+        method = data.get("scoring_method")
+        if method not in ("tag_filter_date_sorted", "date_sorted"):
+            print(f"❌ Expected date scoring_method, got '{method}'")
+            return False
+
+        memories = data.get("memories", [])
+        if len(memories) < 2:
+            print(f"⚠️  Only {len(memories)} memories returned — cannot verify order")
+            print("✅ sort_by=date_desc accepted, structure correct")
+            return True
+
+        # Verify descending order
+        def _ts(m):
+            return m.get('last_modified') or m.get('timestamp') or ''
+
+        timestamps = [_ts(m) for m in memories]
+        if timestamps != sorted(timestamps, reverse=True):
+            print(f"❌ Memories not in descending order: {timestamps}")
+            return False
+
+        print(f"✅ sort_by=date_desc: {len(memories)} memories in correct order, method='{method}'")
+        return True
+
+    except Exception as e:
+        import traceback
+        print(f"❌ test_search_sort_by_date failed: {e}")
+        traceback.print_exc()
+        return False
+
+
+async def test_list_sort_by_date():
+    """
+    tinydb_list_memories with sort_by="date_asc" must return memories oldest-first.
+    """
+    print("\n=== Testing tinydb_list_memories sort_by date ===")
+    try:
+        from first_mcp import server_impl
+        from fastmcp import Client
+
+        client = Client(server_impl.mcp)
+        async with client:
+            result = await client.call_tool("tinydb_list_memories", {
+                "sort_by": "date_asc",
+                "page_size": 20,
+                "limit": 100,
+            })
+            data = result.data
+
+        if not data.get("success"):
+            print(f"❌ List failed: {data.get('error')}")
+            return False
+
+        if "search_criteria" not in data:
+            print(f"❌ Missing search_criteria in response: {list(data.keys())}")
+            return False
+
+        if data["search_criteria"].get("sort_by") != "date_asc":
+            print(f"❌ sort_by not echoed correctly: {data['search_criteria']}")
+            return False
+
+        memories = data.get("memories", [])
+        if len(memories) < 2:
+            print("✅ sort_by=date_asc accepted (too few memories to verify order)")
+            return True
+
+        def _ts(m):
+            return m.get('last_modified') or m.get('timestamp') or ''
+
+        timestamps = [_ts(m) for m in memories]
+        if timestamps != sorted(timestamps):
+            print(f"❌ Memories not in ascending order: {timestamps}")
+            return False
+
+        print(f"✅ sort_by=date_asc: {len(memories)} memories in correct order")
+        return True
+
+    except Exception as e:
+        import traceback
+        print(f"❌ test_list_sort_by_date failed: {e}")
+        traceback.print_exc()
+        return False
+
+
+async def test_list_category_filter():
+    """
+    tinydb_list_memories with category="projects" must return only memories
+    in that category and exclude others.
+    """
+    print("\n=== Testing tinydb_list_memories category filter ===")
+    try:
+        from first_mcp import server_impl
+        from fastmcp import Client
+
+        client = Client(server_impl.mcp)
+        async with client:
+            # Insert one "projects" memory and one "preferences" memory
+            await client.call_tool("tinydb_memorize", {
+                "content": "List-category-filter project memory.",
+                "category": "projects",
+                "tags": "list-category-filter-test",
+                "importance": 3,
+            })
+            await client.call_tool("tinydb_memorize", {
+                "content": "List-category-filter preference memory.",
+                "category": "preferences",
+                "tags": "list-category-filter-test",
+                "importance": 3,
+            })
+
+            result = await client.call_tool("tinydb_list_memories", {
+                "category": "projects",
+                "page_size": 50,
+                "limit": 100,
+            })
+            data = result.data
+
+        if not data.get("success"):
+            print(f"❌ List with category failed: {data.get('error')}")
+            return False
+
+        memories = data.get("memories", [])
+        wrong_category = [
+            m for m in memories
+            if (m.get('category') or '').lower() != "projects"
+        ]
+        if wrong_category:
+            print(f"❌ {len(wrong_category)} memories with wrong category returned")
+            return False
+
+        projects_memory_present = any(
+            "List-category-filter project memory" in m.get("content", "")
+            for m in memories
+        )
+        if not projects_memory_present:
+            print("❌ Inserted projects memory not found in filtered result")
+            return False
+
+        print(f"✅ category filter works: {len(memories)} memories, all in 'projects'")
+        return True
+
+    except Exception as e:
+        import traceback
+        print(f"❌ test_list_category_filter failed: {e}")
+        traceback.print_exc()
+        return False
+
+
+async def test_sort_prefers_last_modified():
+    """
+    When a memory is updated its last_modified timestamp becomes newer than
+    the timestamp of a more recently *inserted* memory.  sort_by="date_desc"
+    must rank the updated (older) memory first, proving last_modified takes
+    priority over the original insertion timestamp.
+
+    Timeline:
+      T1 — insert memory A
+      T2 — insert memory B  (B.timestamp > A.timestamp)
+      T3 — update memory A  (A.last_modified = T3 > T2)
+    Expected date_desc order: A (T3), B (T2)
+    Expected date_asc  order: B (T2), A (T3)
+    """
+    print("\n=== Testing sort key: last_modified beats timestamp ===")
+    import time
+    try:
+        from first_mcp import server_impl
+        from fastmcp import Client
+
+        client = Client(server_impl.mcp)
+        async with client:
+            tag = "last-modified-priority-test"
+
+            res_a = await client.call_tool("tinydb_memorize", {
+                "content": "Memory A — inserted first, later modified.",
+                "tags": tag,
+                "importance": 3,
+            })
+            id_a = res_a.data.get("memory_id")
+            time.sleep(0.1)
+
+            res_b = await client.call_tool("tinydb_memorize", {
+                "content": "Memory B — inserted second, never modified.",
+                "tags": tag,
+                "importance": 3,
+            })
+            id_b = res_b.data.get("memory_id")
+            time.sleep(0.1)
+
+            # Update A — its last_modified now > B's timestamp
+            upd = await client.call_tool("tinydb_update_memory", {
+                "memory_id": id_a,
+                "content": "Memory A — updated content.",
+            })
+            if not upd.data.get("success"):
+                print(f"❌ Update failed: {upd.data}")
+                return False
+
+            # date_desc: A (last_modified=T3) should come before B (timestamp=T2)
+            r_desc = await client.call_tool("tinydb_search_memories", {
+                "tags": tag,
+                "sort_by": "date_desc",
+                "semantic_search": False,
+                "page_size": 10,
+            })
+            memories_desc = r_desc.data.get("memories", [])
+            ids_desc = [m["id"] for m in memories_desc]
+
+            if len(ids_desc) < 2:
+                print(f"❌ Expected 2 memories, got {len(ids_desc)}")
+                return False
+
+            if ids_desc[0] != id_a:
+                print(f"❌ date_desc: expected A first (has last_modified), got order {ids_desc}")
+                return False
+
+            # date_asc: B (timestamp=T2) should come before A (last_modified=T3)
+            r_asc = await client.call_tool("tinydb_search_memories", {
+                "tags": tag,
+                "sort_by": "date_asc",
+                "semantic_search": False,
+                "page_size": 10,
+            })
+            memories_asc = r_asc.data.get("memories", [])
+            ids_asc = [m["id"] for m in memories_asc]
+
+            if ids_asc[0] != id_b:
+                print(f"❌ date_asc: expected B first (older timestamp), got order {ids_asc}")
+                return False
+
+        print("✅ last_modified takes priority over timestamp in both date_desc and date_asc")
+        return True
+
+    except Exception as e:
+        import traceback
+        print(f"❌ test_sort_prefers_last_modified failed: {e}")
+        traceback.print_exc()
+        return False
+
+
+async def test_search_date_sort_tag_filter_still_applies():
+    """
+    With sort_by=date_desc AND tags provided, only memories matching those tags
+    must be returned — tag filtering must not be bypassed by the date sort.
+
+    Inserts 2 memories with tag X and 1 with tag Y.  Searching tag X + date_desc
+    must return exactly the 2 X-tagged memories, not the Y one.
+    """
+    print("\n=== Testing tag filter is preserved under sort_by=date_desc ===")
+    import time
+    try:
+        from first_mcp import server_impl
+        from fastmcp import Client
+
+        client = Client(server_impl.mcp)
+        async with client:
+            tag_x = "tag-filter-date-sort-x"
+            tag_y = "tag-filter-date-sort-y"
+
+            for i in range(2):
+                await client.call_tool("tinydb_memorize", {
+                    "content": f"Tag-X memory {i}.",
+                    "tags": tag_x,
+                    "importance": 3,
+                })
+                time.sleep(0.05)
+
+            await client.call_tool("tinydb_memorize", {
+                "content": "Tag-Y memory — must not appear in tag-X search.",
+                "tags": tag_y,
+                "importance": 3,
+            })
+
+            result = await client.call_tool("tinydb_search_memories", {
+                "tags": tag_x,
+                "sort_by": "date_desc",
+                "semantic_search": False,
+                "page_size": 20,
+            })
+            data = result.data
+
+        if not data.get("success"):
+            print(f"❌ Search failed: {data.get('error')}")
+            return False
+
+        memories = data.get("memories", [])
+        wrong = [m for m in memories if tag_x not in m.get("tags", [])]
+        if wrong:
+            print(f"❌ {len(wrong)} memories without tag '{tag_x}' leaked through: "
+                  f"{[m.get('content') for m in wrong]}")
+            return False
+
+        if len(memories) != 2:
+            print(f"❌ Expected exactly 2 tag-X memories, got {len(memories)}")
+            return False
+
+        print(f"✅ Tag filter preserved: {len(memories)} tag-X memories only, Y excluded")
+        return True
+
+    except Exception as e:
+        import traceback
+        print(f"❌ test_search_date_sort_tag_filter_still_applies failed: {e}")
+        traceback.print_exc()
+        return False
+
+
+async def test_search_date_sort_pagination_preserves_order():
+    """
+    Insert 7 memories with a unique tag and distinct timestamps.
+    Search with sort_by="date_desc" and page_size=3, then paginate to end.
+    The timestamps collected across all pages must be monotonically non-increasing —
+    proving the sort order is not disrupted by the pagination layer.
+    """
+    print("\n=== Testing sort order preserved across pages (search date_desc) ===")
+    import time
+    try:
+        from first_mcp import server_impl
+        from fastmcp import Client
+
+        client = Client(server_impl.mcp)
+        async with client:
+            tag = "date-sort-pagination-order-test"
+            for i in range(7):
+                await client.call_tool("tinydb_memorize", {
+                    "content": f"Ordered memory {i}.",
+                    "tags": tag,
+                    "importance": 3,
+                })
+                time.sleep(0.05)
+
+            result = await client.call_tool("tinydb_search_memories", {
+                "tags": tag,
+                "sort_by": "date_desc",
+                "semantic_search": False,
+                "page_size": 3,
+                "limit": 50,
+            })
+            data = result.data
+
+            if not data.get("success"):
+                print(f"❌ Initial search failed: {data.get('error')}")
+                return False
+
+            def _ts(m):
+                return m.get('last_modified') or m.get('timestamp') or ''
+
+            all_timestamps = [_ts(m) for m in data.get("memories", [])]
+            token = data.get("next_page_token")
+
+            while token:
+                next_res = await client.call_tool("memory_next_page", {"next_page_token": token})
+                nd = next_res.data
+                if not nd.get("success"):
+                    print(f"❌ memory_next_page failed: {nd.get('error')}")
+                    return False
+                all_timestamps.extend(_ts(m) for m in nd.get("memories", []))
+                token = nd.get("next_page_token")
+
+        if len(all_timestamps) != 7:
+            print(f"❌ Expected 7 timestamps across all pages, got {len(all_timestamps)}")
+            return False
+
+        if all_timestamps != sorted(all_timestamps, reverse=True):
+            print(f"❌ Timestamps not monotonically non-increasing across pages:\n  {all_timestamps}")
+            return False
+
+        print(f"✅ All 7 timestamps in correct descending order across pages")
+        return True
+
+    except Exception as e:
+        import traceback
+        print(f"❌ test_search_date_sort_pagination_preserves_order failed: {e}")
+        traceback.print_exc()
+        return False
+
+
+async def test_list_category_and_sort_combined():
+    """
+    tinydb_list_memories with both category and sort_by set must:
+      1. Return only memories in the specified category.
+      2. Return them in the requested date order.
+    """
+    print("\n=== Testing tinydb_list_memories: category + sort_by combined ===")
+    import time
+    try:
+        from first_mcp import server_impl
+        from fastmcp import Client
+
+        client = Client(server_impl.mcp)
+        async with client:
+            cat = "projects"
+            for i in range(3):
+                await client.call_tool("tinydb_memorize", {
+                    "content": f"Category-sort combo project memory {i}.",
+                    "category": cat,
+                    "tags": "category-sort-combo-test",
+                    "importance": 3,
+                })
+                time.sleep(0.05)
+
+            # Insert a decoy in a different category
+            await client.call_tool("tinydb_memorize", {
+                "content": "Category-sort combo preferences decoy.",
+                "category": "preferences",
+                "tags": "category-sort-combo-test",
+                "importance": 3,
+            })
+
+            result = await client.call_tool("tinydb_list_memories", {
+                "category": cat,
+                "sort_by": "date_asc",
+                "page_size": 50,
+                "limit": 100,
+            })
+            data = result.data
+
+        if not data.get("success"):
+            print(f"❌ List failed: {data.get('error')}")
+            return False
+
+        memories = data.get("memories", [])
+
+        # Only projects
+        wrong_cat = [m for m in memories if (m.get("category") or "").lower() != cat]
+        if wrong_cat:
+            print(f"❌ {len(wrong_cat)} non-'{cat}' memories leaked through")
+            return False
+
+        # Confirm the 3 new ones are present
+        combo_memories = [m for m in memories if "Category-sort combo project" in m.get("content", "")]
+        if len(combo_memories) < 3:
+            print(f"❌ Expected at least 3 combo project memories, found {len(combo_memories)}")
+            return False
+
+        # Check ascending timestamp order across the combo memories
+        def _ts(m):
+            return m.get('last_modified') or m.get('timestamp') or ''
+
+        ts = [_ts(m) for m in memories]
+        if ts != sorted(ts):
+            print(f"❌ Memories not in ascending order: {ts}")
+            return False
+
+        print(f"✅ category='{cat}' + sort_by=date_asc: {len(memories)} memories, correct category and order")
+        return True
+
+    except Exception as e:
+        import traceback
+        print(f"❌ test_list_category_and_sort_combined failed: {e}")
+        traceback.print_exc()
+        return False
+
+
 async def test_tag_scoring_path_via_mcp():
     """
     Exercise the tag-scoring code path (scoring_method='tag_scoring') through
@@ -549,6 +1048,13 @@ async def main():
         test_search_pagination_round_trip,
         test_list_pagination_round_trip,
         test_workflow_guide_returns_all_best_practices,
+        test_search_sort_by_date,
+        test_list_sort_by_date,
+        test_list_category_filter,
+        test_sort_prefers_last_modified,
+        test_search_date_sort_tag_filter_still_applies,
+        test_search_date_sort_pagination_preserves_order,
+        test_list_category_and_sort_combined,
         test_tag_scoring_path_via_mcp,
     ]
 

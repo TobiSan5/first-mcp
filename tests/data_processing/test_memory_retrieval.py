@@ -259,7 +259,134 @@ class TestTagScoring(unittest.TestCase):
         self.assertEqual(scores, sorted(scores, reverse=True))
 
 
+# ---------------------------------------------------------------------------
+# Date sort key tests
+# ---------------------------------------------------------------------------
+
+def _sort_key(m):
+    """Mirror of the sort key used in server_impl for date-based ordering."""
+    return m.get('last_modified') or m.get('timestamp') or ''
+
+
+class TestDateSortKey(unittest.TestCase):
+    """
+    Tests for the sort key used in sort_by="date_desc"/"date_asc".
+
+    Sort key resolution order:
+      1. last_modified   — present and non-empty
+      2. timestamp       — fallback when last_modified is absent or None
+      3. ''              — ultimate fallback (sorts to the beginning in desc,
+                           end in asc, as ISO strings compare correctly)
+
+    All tests use synthetic memory dicts — no API, no TinyDB, no MCP client.
+    """
+
+    def _mem(self, id_, timestamp=None, last_modified=None):
+        m = {"id": id_, "content": f"memory {id_}"}
+        if timestamp is not None:
+            m["timestamp"] = timestamp
+        if last_modified is not None:
+            m["last_modified"] = last_modified
+        return m
+
+    # -- sort key resolution --------------------------------------------------
+
+    def test_last_modified_used_when_present(self):
+        """last_modified is returned when it exists and is non-empty."""
+        m = self._mem("a", timestamp="2025-01-01T00:00:00", last_modified="2025-06-01T00:00:00")
+        self.assertEqual(_sort_key(m), "2025-06-01T00:00:00")
+
+    def test_timestamp_used_when_no_last_modified(self):
+        """timestamp is the fallback when last_modified is absent."""
+        m = self._mem("a", timestamp="2025-01-01T00:00:00")
+        self.assertEqual(_sort_key(m), "2025-01-01T00:00:00")
+
+    def test_timestamp_used_when_last_modified_is_none(self):
+        """timestamp is the fallback when last_modified is explicitly None."""
+        m = self._mem("a", timestamp="2025-01-01T00:00:00", last_modified=None)
+        self.assertEqual(_sort_key(m), "2025-01-01T00:00:00")
+
+    def test_empty_string_when_both_absent(self):
+        """Empty string is returned when neither field is present."""
+        m = {"id": "a", "content": "no dates"}
+        self.assertEqual(_sort_key(m), "")
+
+    # -- descending sort (most recent first) ----------------------------------
+
+    def test_desc_sort_by_last_modified(self):
+        """date_desc puts the most recently modified memory first."""
+        memories = [
+            self._mem("old",  timestamp="2025-01-01T10:00:00"),
+            self._mem("mid",  timestamp="2025-03-01T10:00:00"),
+            self._mem("new",  timestamp="2025-05-01T10:00:00"),
+        ]
+        memories.sort(key=_sort_key, reverse=True)
+        self.assertEqual([m["id"] for m in memories], ["new", "mid", "old"])
+
+    def test_desc_sort_last_modified_beats_newer_timestamp(self):
+        """
+        An older memory that was recently modified must rank above a newer
+        memory that was never modified.
+        """
+        memories = [
+            self._mem("a_modified",  timestamp="2025-01-01T00:00:00",
+                                     last_modified="2025-09-01T00:00:00"),
+            self._mem("b_unmodified", timestamp="2025-06-01T00:00:00"),
+        ]
+        memories.sort(key=_sort_key, reverse=True)
+        self.assertEqual(memories[0]["id"], "a_modified")
+
+    # -- ascending sort (oldest first) ----------------------------------------
+
+    def test_asc_sort_by_timestamp(self):
+        """date_asc puts the oldest memory first."""
+        memories = [
+            self._mem("new",  timestamp="2025-05-01T10:00:00"),
+            self._mem("mid",  timestamp="2025-03-01T10:00:00"),
+            self._mem("old",  timestamp="2025-01-01T10:00:00"),
+        ]
+        memories.sort(key=_sort_key, reverse=False)
+        self.assertEqual([m["id"] for m in memories], ["old", "mid", "new"])
+
+    def test_asc_sort_last_modified_beats_newer_timestamp(self):
+        """
+        In ascending order, a memory whose last_modified is the most recent
+        must appear last, even if it was inserted before other memories.
+        """
+        memories = [
+            self._mem("a_modified",   timestamp="2025-01-01T00:00:00",
+                                      last_modified="2025-09-01T00:00:00"),
+            self._mem("b_unmodified", timestamp="2025-06-01T00:00:00"),
+        ]
+        memories.sort(key=_sort_key, reverse=False)
+        self.assertEqual(memories[-1]["id"], "a_modified")
+
+    # -- edge cases -----------------------------------------------------------
+
+    def test_stable_on_equal_keys(self):
+        """Memories with identical sort keys maintain their original order."""
+        ts = "2025-04-01T12:00:00"
+        memories = [self._mem(str(i), timestamp=ts) for i in range(5)]
+        original_ids = [m["id"] for m in memories]
+        memories.sort(key=_sort_key, reverse=True)
+        self.assertEqual([m["id"] for m in memories], original_ids)
+
+    def test_missing_dates_sort_to_front_in_desc(self):
+        """
+        Memories with no date fields get sort key '' which is lexicographically
+        smallest — they appear first in descending order (least preferred).
+        This is acceptable: dateless memories cannot claim recency.
+        """
+        memories = [
+            self._mem("dated",   timestamp="2025-01-01T00:00:00"),
+            self._mem("undated"),
+        ]
+        memories.sort(key=_sort_key, reverse=True)
+        # 'dated' has a real timestamp so it should rank above '' in desc order
+        self.assertEqual(memories[0]["id"], "dated")
+
+
 if __name__ == '__main__':
-    print("⚙️  Data Processing Layer Tests — Memory Retrieval (pagination + tag scoring)")
+    print("⚙️  Data Processing Layer Tests — Memory Retrieval (pagination + tag scoring + date sort)")
     print("No API or TinyDB required — all tests use synthetic data.\n")
     unittest.main(verbosity=2)

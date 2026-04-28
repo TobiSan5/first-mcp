@@ -430,7 +430,9 @@ def memory_workflow_guide() -> Dict[str, Any]:
       2. Call tinydb_search_memories with 2-4 relevant tags and the default page_size.
       3. If total_found > returned_count, call memory_next_page repeatedly to expand
          context one page at a time — stop when you have enough, not at the end.
-      4. Use tinydb_list_memories (browse by importance) only when you have no specific tags.
+      4. Use tinydb_list_memories when you want to browse a category without a topic filter,
+         or when you have no specific tags.  Supports sort_by="date_desc" to see what
+         changed recently.
 
     STORAGE WORKFLOW
     ----------------
@@ -488,12 +490,11 @@ def memory_workflow_guide() -> Dict[str, Any]:
         },
         "recommended_workflow": {
             "0_check_best_practices": {
-                "step": "ALWAYS check stored best practices first",
-                "tool": "tinydb_search_memories",
-                "command": "tinydb_search_memories(category='best_practices')",
+                "step": "Check stored best practices first",
+                "tool": "tinydb_list_memories",
+                "command": "tinydb_list_memories(category='best_practices')",
                 "rationale": "Learn from previous experience and improve memory usage patterns",
-                "example": "Review guidelines about tag naming, content formatting, category usage",
-                "priority": "CRITICAL - Do this before every memory storage operation"
+                "example": "Review guidelines about tag naming, content formatting, category usage"
             },
             "1_analyze_content": {
                 "step": "Extract key concepts and find similar existing tags",
@@ -555,8 +556,8 @@ def memory_workflow_guide() -> Dict[str, Any]:
         "available_tinydb_tools": {
             "memory_management": [
                 "tinydb_memorize(content, tags, category, importance, expires_at)",
-                "tinydb_search_memories(query, tags, category, limit, importance_min)",
-                "tinydb_list_memories(category, tags, limit)",
+                "tinydb_search_memories(query, tags, category, limit, page_size, sort_by, semantic_search)",
+                "tinydb_list_memories(category, limit, page_size, sort_by)",
                 "tinydb_delete_memory(memory_id)",
                 "tinydb_update_memory(memory_id, content, tags, category, importance)",
                 "tinydb_recall_memory(memory_id)"
@@ -604,13 +605,14 @@ def memory_workflow_guide() -> Dict[str, Any]:
             "information_retrieval": {
                 "scenario": "Finding specific information quickly",
                 "search_strategies": [
-                    "Content search: tinydb_search_memories(query='specific terms')",
-                    "Tag filtering: tinydb_search_memories(tags='specific_tag')",
-                    "Category filtering: tinydb_search_memories(category='category_name')", 
-                    "Importance filtering: tinydb_search_memories(importance_min=4)",
-                    "Combined filters: tinydb_search_memories(query='term', tags='tag', category='cat')"
+                    "By topic (tags): tinydb_search_memories(tags='specific_tag')",
+                    "By topic + date: tinydb_search_memories(tags='specific_tag', sort_by='date_desc')",
+                    "Content keyword: tinydb_search_memories(query='specific terms')",
+                    "Category browse: tinydb_list_memories(category='category_name')",
+                    "Recent activity: tinydb_list_memories(sort_by='date_desc')",
+                    "Combined: tinydb_search_memories(query='term', tags='tag', category='cat')"
                 ],
-                "tip": "Use importance_min parameter to focus on critical information first"
+                "tip": "Prefer tags over content search — the semantic scorer finds near-synonyms"
             }
         },
         "performance_optimization": {
@@ -621,13 +623,13 @@ def memory_workflow_guide() -> Dict[str, Any]:
                 "avoid": "Creating new tags without checking for similar existing ones"
             },
             "search_optimization": {
-                "semantic_advantage": "tinydb_search_memories() now automatically expands approximate tags",
-                "category_clarity": "Invalid categories get helpful error showing all available options", 
-                "tag_flexibility": "Use approximate tags like 'python-dev' - system finds 'python', 'development' matches",
+                "semantic_advantage": "tinydb_search_memories() scores by tag-embedding similarity — approximate tags work",
+                "category_clarity": "Invalid categories return an error listing all available options",
+                "tag_flexibility": "Use approximate tags like 'python-dev' — system finds 'python', 'development' matches",
                 "specific_searches": "Use specific terms rather than broad queries",
                 "tag_combinations": "Combine multiple tags for precise filtering",
-                "importance_filtering": "Use importance_min to prioritize results",
-                "limit_results": "Use limit parameter for large datasets"
+                "date_sorting": "Use sort_by='date_desc' to surface the most recently changed memories first",
+                "limit_results": "Use limit parameter to cap the total result set size"
             },
             "database_maintenance": {
                 "regular_stats": "Use tinydb_memory_stats() to monitor growth",
@@ -673,12 +675,6 @@ def memory_workflow_guide() -> Dict[str, Any]:
             "consistent_naming": "Prefer existing tag conventions discovered through tinydb_find_similar_tags()",
             "avoid_duplicates": "Don't create 'js' if tinydb_find_similar_tags('javascript') shows 'javascript' exists",
             "compound_concepts": "For complex topics, find existing tags for each concept rather than creating one big tag"
-        },
-        "migration_info": {
-            "legacy_location": "Legacy memory files moved to legacy/ folder",
-            "migration_script": "migrate_to_tinydb.py - run with --migrate flag",
-            "data_preserved": "All 88 memories, 242 tags, 8 categories successfully migrated",
-            "performance_improvement": "TinyDB provides faster, more reliable data persistence"
         },
         "comprehensive_workflow_example": {
             "scenario": "Storing information about React hooks efficiently",
@@ -887,7 +883,8 @@ def tinydb_recall_memory(memory_id: str) -> Dict[str, Any]:
 @mcp.tool()
 def tinydb_search_memories(query: str = "", tags: str = "", category: str = "",
                           limit: int = 50, semantic_search: bool = True,
-                          page_size: int = 5) -> Dict[str, Any]:
+                          page_size: int = 5,
+                          sort_by: str = "relevance") -> Dict[str, Any]:
     """
     Search memories by tag similarity.  This is the primary retrieval tool.
 
@@ -915,6 +912,15 @@ def tinydb_search_memories(query: str = "", tags: str = "", category: str = "",
                   tags; works best as a narrow disambiguator, not the main search.
     category      Optional exact-match category filter ("projects", "preferences", …).
                   Call tinydb_get_memory_categories to see available values.
+    sort_by       Controls ordering of results.
+                  "relevance" (default) — ranked by how closely tags match.
+                  "date_desc" — most recently modified first.  Use this when the
+                    user asks about recent work, what changed lately, or wants
+                    chronological context on a topic.
+                  "date_asc" — oldest first.
+                  With a date sort and tags provided, tag scoring still determines
+                  which memories qualify; matching memories are then ordered by
+                  last modification date rather than relevance score.
     page_size     Results in the first response (default 5).  Keep this small and
                   use memory_next_page to expand — this avoids filling the context
                   window with results you may not need.
@@ -1009,11 +1015,19 @@ def tinydb_search_memories(query: str = "", tags: str = "", category: str = "",
             else:
                 # No tags — sort by importance then recency
                 all_memories.sort(
-                    key=lambda x: (x.get('importance', 3), x.get('created_at', x.get('timestamp', ''))),
+                    key=lambda x: (x.get('importance', 3), x.get('last_modified') or x.get('timestamp') or ''),
                     reverse=True,
                 )
                 filtered_results = all_memories[:limit]
                 scored_method = "importance"
+
+            # Date sort override — re-order survivors by last_modified / timestamp
+            if sort_by in ("date_desc", "date_asc"):
+                filtered_results.sort(
+                    key=lambda m: m.get('last_modified') or m.get('timestamp') or '',
+                    reverse=(sort_by == "date_desc"),
+                )
+                scored_method = "tag_filter_date_sorted" if tags else "date_sorted"
 
             total_found = len(filtered_results)
             first_page = filtered_results[:page_size]
@@ -1027,7 +1041,7 @@ def tinydb_search_memories(query: str = "", tags: str = "", category: str = "",
                     query_info={
                         "query": query, "tags": tags, "category": category,
                         "limit": limit, "semantic_search": semantic_search,
-                        "page_size": page_size,
+                        "page_size": page_size, "sort_by": sort_by,
                     },
                 )
 
@@ -1046,6 +1060,7 @@ def tinydb_search_memories(query: str = "", tags: str = "", category: str = "",
                     "limit": limit,
                     "page_size": page_size,
                     "semantic_search": semantic_search,
+                    "sort_by": sort_by,
                 },
             }
             return add_server_timestamp(result)
@@ -1059,22 +1074,40 @@ def tinydb_search_memories(query: str = "", tags: str = "", category: str = "",
         return add_server_timestamp(result)
 
 @mcp.tool()
-def tinydb_list_memories(limit: int = 100, page_size: int = 10) -> Dict[str, Any]:
+def tinydb_list_memories(limit: int = 100, page_size: int = 10,
+                        category: str = "",
+                        sort_by: str = "relevance") -> Dict[str, Any]:
     """
-    Browse all memories sorted by importance (highest first), with pagination.
+    Browse memories by category rather than by topic.
 
-    Use this when you have no specific tags to search for — for example at the
-    start of a session to get a general picture of what has been stored, or when
-    exploring unfamiliar topics.  For targeted retrieval, prefer
-    tinydb_search_memories with explicit tags.
+    Use this when you want to see what exists in a category — not because you
+    have a specific topic to retrieve, but to get an inventory or review recent
+    activity.  If you have a topic in mind, prefer tinydb_search_memories with
+    explicit tags instead.
+
+    Typical decision rule:
+      - "What projects do I have stored?" → list with category="projects"
+      - "What did I work on recently?" → list with sort_by="date_desc"
+      - "What changed recently in my projects?" → list with category="projects",
+        sort_by="date_desc"
+      - "Find memories about machine learning" → search with tags="machine-learning"
 
     Returns a small first page (default 10).  If has_more is True, call
-    memory_next_page(next_page_token) to load the next page.  Stop when you have
-    enough context — you do not need to exhaust all pages.
+    memory_next_page(next_page_token) to load the next page.  Stop when you
+    have enough context — you do not need to exhaust all pages.
 
-    Args:
-        page_size: Results in the first response (default 10).
-        limit: Hard cap on total memories considered (default 100).
+    PARAMETERS
+    ----------
+    category  Optional exact-match category filter ("projects", "preferences", …).
+              Call tinydb_get_memory_categories to see available values.
+              When omitted, all categories are included.
+    sort_by   Controls ordering of results.
+              "relevance" (default) — highest importance first.
+              "date_desc" — most recently modified first.  Use this when the
+                user asks what changed lately or wants a chronological view.
+              "date_asc" — oldest first.
+    page_size Results in the first response (default 10).
+    limit     Hard cap on total memories considered (default 100).
     """
     try:
         from datetime import datetime
@@ -1098,10 +1131,23 @@ def tinydb_list_memories(limit: int = 100, page_size: int = 10) -> Dict[str, Any
 
             memory_db.close()
 
-            active_memories.sort(
-                key=lambda x: (x.get('importance', 3), x.get('created_at', x.get('timestamp', ''))),
-                reverse=True,
-            )
+            # Category filter
+            if category:
+                active_memories = [
+                    m for m in active_memories
+                    if (m.get('category') or '').lower() == category.strip().lower()
+                ]
+
+            if sort_by in ("date_desc", "date_asc"):
+                active_memories.sort(
+                    key=lambda m: m.get('last_modified') or m.get('timestamp') or '',
+                    reverse=(sort_by == "date_desc"),
+                )
+            else:
+                active_memories.sort(
+                    key=lambda x: (x.get('importance', 3), x.get('last_modified') or x.get('timestamp') or ''),
+                    reverse=True,
+                )
 
             capped = active_memories[:limit]
             total_active = len(capped)
@@ -1113,7 +1159,8 @@ def tinydb_list_memories(limit: int = 100, page_size: int = 10) -> Dict[str, Any
                 next_page_token = save_paginated_results(
                     all_results=capped,
                     page_size=page_size,
-                    query_info={"limit": limit, "page_size": page_size},
+                    query_info={"limit": limit, "page_size": page_size,
+                                "category": category, "sort_by": sort_by},
                 )
 
             result = {
@@ -1123,6 +1170,12 @@ def tinydb_list_memories(limit: int = 100, page_size: int = 10) -> Dict[str, Any
                 "returned_count": len(first_page),
                 "has_more": has_more,
                 "next_page_token": next_page_token,
+                "search_criteria": {
+                    "category": category,
+                    "sort_by": sort_by,
+                    "limit": limit,
+                    "page_size": page_size,
+                },
             }
             return add_server_timestamp(result)
 
