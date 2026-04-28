@@ -78,6 +78,21 @@ Memory retrieval: soft tag scoring, pagination, improved tool guidance:
 - Bug fix: memories stored without a category have `{"category": null}` in JSON — `dict.get('category', '')` returns `None` (not `''`) when the key exists but is null. Fixed with `(m.get('category') or '').lower()` in `memory_tools.py` and `server_impl.py`.
 - Tests: 20 data-processing tests (`TestPagination`, `TestTagScoring`), 9 server-implementation tests including end-to-end pagination round-trip and `memory_workflow_guide` regression.
 
+### v1.4.1 ✅ Released
+Date-based sorting and category browsing for memory retrieval:
+- **`sort_by` parameter** on `tinydb_search_memories` and `tinydb_list_memories` — values: `"relevance"` (default, current behaviour), `"date_desc"` (newest first), `"date_asc"` (oldest first). Sort key: `last_modified`, falling back to `timestamp`. A memory that has been updated ranks by its modification date, not its original insertion date.
+- When tags are provided alongside a date sort: soft tag scoring still runs to determine which memories qualify; survivors are then re-ordered chronologically. Response reports `scoring_method = "tag_filter_date_sorted"`.
+- **`category` parameter** added to `tinydb_list_memories` — enables browsing all memories in a category without a tag query (e.g. "show me all project memories, newest first").
+- Tool docstrings rewritten to motivate `sort_by` with concrete user-request examples and sharpen the list-vs-search decision rule.
+- `CLAUDE.md` testing section expanded with concrete patterns for each tier.
+- Tests: 10 new `TestDateSortKey` unit tests in `data_processing/test_memory_retrieval.py`; 7 new server-implementation tests covering `last_modified` priority, tag filter preservation under date sort, cross-page sort order, and category+sort combined.
+
+### v1.4.2 🚧 Planned
+Google Gemini chat completion tools via new `assistant.py` module:
+- **`second_opinion(question, context="")`** — sends a question to `gemini-2.0-flash` and returns its answer. Requires `GOOGLE_API_KEY` (already needed for embeddings). Designed for use inside Claude Desktop sessions where a second perspective from a different model is useful.
+- New `src/first_mcp/assistant.py` data layer wrapping the `google-genai` SDK chat API.
+- MCP tool definitions as thin wrappers in `server_impl.py`, guarded by `GOOGLE_API_KEY` availability.
+
 ## Version 2.0 - Modular Architecture 🚧
 
 **Target**: Q1 2025
@@ -319,5 +334,5 @@ Create a thriving ecosystem of MCP servers that can be:
 ---
 
 **Maintained by**: Torbjørn Wikestad
-**Last Updated**: 2026-02-16
+**Last Updated**: 2026-04-28
 **Next Review**: On v2.0 planning
