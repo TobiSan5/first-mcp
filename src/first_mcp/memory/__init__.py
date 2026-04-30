@@ -62,7 +62,9 @@ from .memory_tools import (
 from .tag_tools import (
     tinydb_find_similar_tags,
     tinydb_get_all_tags,
-    tinydb_register_tags
+    tinydb_register_tags,
+    increment_tag_usage,
+    decrement_tag_usage,
 )
 from .semantic_search import find_similar_tags_internal, check_category_exists
 from .generic_tools import (
@@ -77,6 +79,13 @@ from .generic_tools import (
 from .tag_mapper import smart_tag_mapping
 from .pagination import save_paginated_results, get_next_page, cleanup_paginated_files
 from .tag_scoring import build_tag_registry, score_memories_by_tags
+from .tag_enrichment import (
+    tag_enrichment_loop,
+    enrich_batch,
+    mark_enriched,
+    remove_from_enrichment_register,
+    get_unenriched_memory_ids,
+)
 
 __all__ = [
     # Database connections
@@ -89,6 +98,7 @@ __all__ = [
     
     # Tag management
     'tinydb_find_similar_tags', 'tinydb_get_all_tags', 'tinydb_register_tags',
+    'increment_tag_usage', 'decrement_tag_usage',
     
     # Semantic search
     'find_similar_tags_internal', 'check_category_exists',
@@ -106,4 +116,8 @@ __all__ = [
 
     # Tag scoring
     'build_tag_registry', 'score_memories_by_tags',
+
+    # Tag enrichment agent
+    'tag_enrichment_loop', 'enrich_batch',
+    'mark_enriched', 'remove_from_enrichment_register', 'get_unenriched_memory_ids',
 ]

@@ -268,6 +268,43 @@ def tinydb_embedding_stats() -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+def increment_tag_usage(tag_names: List[str]) -> None:
+    """Bump usage_count by 1 for each tag in `tag_names` that exists in the registry."""
+    if not tag_names:
+        return
+    tags_db = get_tags_tinydb()
+    tags_table = tags_db.table('tags')
+    Record = Query()
+    now = datetime.now().isoformat()
+    for tag in tag_names:
+        existing = tags_table.search(Record.tag == tag)
+        if existing:
+            tags_table.update(
+                {'usage_count': existing[0]['usage_count'] + 1, 'last_used_at': now},
+                Record.tag == tag,
+            )
+    tags_db.close()
+
+
+def decrement_tag_usage(tag_names: List[str]) -> None:
+    """Decrement usage_count by 1 (floor at 0) for each tag in `tag_names`.
+
+    Called when tags are removed from a memory so the count stays consistent
+    with the number of memories actively using each tag.
+    """
+    if not tag_names:
+        return
+    tags_db = get_tags_tinydb()
+    tags_table = tags_db.table('tags')
+    Record = Query()
+    for tag in tag_names:
+        existing = tags_table.search(Record.tag == tag)
+        if existing:
+            new_count = max(0, existing[0]['usage_count'] - 1)
+            tags_table.update({'usage_count': new_count}, Record.tag == tag)
+    tags_db.close()
+
+
 def tinydb_get_all_tags() -> Dict[str, Any]:
     """
     Get all existing tags with usage statistics using TinyDB.

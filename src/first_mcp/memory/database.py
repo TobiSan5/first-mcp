@@ -32,6 +32,14 @@ def get_categories_tinydb():
     return TinyDB(db_path, storage=CachingMiddleware(JSONStorage))
 
 
+def get_enrichment_tinydb():
+    """Get TinyDB instance for the tag enrichment register."""
+    base_path = os.getenv('FIRST_MCP_DATA_PATH', os.getcwd())
+    db_path = os.path.join(base_path, 'tinydb_enrichment.json')
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    return TinyDB(db_path, storage=CachingMiddleware(JSONStorage))
+
+
 def get_custom_tinydb(db_name: str):
     """Get TinyDB instance for user-specified database."""
     base_path = os.getenv('FIRST_MCP_DATA_PATH', os.getcwd())
