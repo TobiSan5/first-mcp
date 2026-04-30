@@ -58,14 +58,6 @@ New tools extending workspace and adding biblical text lookup:
 - Bug fix: `normalize_book_name()` now correctly round-trips canonical names containing Roman numerals (e.g. `"II_Samuel"` was incorrectly returning `"Ii_Samuel"` via `.title()`)
 - Tests: 18 data-processing tests for workspace edit, 29 data-processing tests for bible module, MCP-layer tests for both tools
 
-### v1.3.0 ✅ Released
-New tools extending workspace and adding biblical text lookup:
-- **`workspace_edit_textfile(filename, mode, content, anchor?)`** — anchor-based in-place text editing with six modes: `append`, `prepend`, `insert_after`, `insert_before`, `replace`, `replace_all`. Designed for long-running MCP tasks that build composite outputs incrementally. No line numbers needed — the client reads the file first and uses a nearby text string as the anchor.
-- **`bible_lookup(reference, bible_version?)`** — looks up ESV biblical text by reference string. Supports single verses (`"John 3:16"`), verse ranges (`"Matt 5:3-12"`), full chapters (`"Ps 23"`), chapter ranges (`"Gen 1-4"`), and semicolon-separated multi-references. Bible data (ESV) is downloaded automatically from `github.com/lguenth/mdbible` on first use and cached locally under `$FIRST_MCP_DATA_PATH/bible_data/ESV/`. The version parameter is designed for future translation support.
-- **`src/first_mcp/bible/`** — new subpackage: `canonical.py`, `sources.py` (ESVBibleDownloader), `books.py` (VerseAccessor, spaCy-free markdown parser), `lookup.py` (BibleLookup with per-version accessor cache). Wesley sermon support deliberately excluded to avoid web-scraping dependencies.
-- Bug fix: `normalize_book_name()` now correctly round-trips canonical names containing Roman numerals (e.g. `"II_Samuel"` was incorrectly returning `"Ii_Samuel"` via `.title()`)
-- Tests: 18 data-processing tests for workspace edit, 29 data-processing tests for bible module, MCP-layer tests for both tools
-
 ### v1.4.0 ✅ Released
 Memory retrieval: soft tag scoring, pagination, improved tool guidance:
 - **`src/first_mcp/memory/tag_scoring.py`** (new) — soft tag-to-tag cosine similarity scoring. `build_tag_registry()` loads all tag embeddings from TinyDB; `score_memories_by_tags()` ranks memories by summed cosine similarity between query tags and memory tags using an adaptive per-query-tag threshold (`mean + 0.5×std`; falls back to fixed `0.5` when std ≈ 0). Resolves vocabulary-mismatch failures (e.g. querying "scheduling" now surfaces memories tagged "timetabling").
@@ -87,11 +79,48 @@ Date-based sorting and category browsing for memory retrieval:
 - `CLAUDE.md` testing section expanded with concrete patterns for each tier.
 - Tests: 10 new `TestDateSortKey` unit tests in `data_processing/test_memory_retrieval.py`; 7 new server-implementation tests covering `last_modified` priority, tag filter preservation under date sort, cross-page sort order, and category+sort combined.
 
-### v1.4.2 🚧 Planned
-Google Gemini chat completion tools via new `assistant.py` module:
-- **`second_opinion(question, context="")`** — sends a question to `gemini-2.0-flash` and returns its answer. Requires `GOOGLE_API_KEY` (already needed for embeddings). Designed for use inside Claude Desktop sessions where a second perspective from a different model is useful.
-- New `src/first_mcp/assistant.py` data layer wrapping the `google-genai` SDK chat API.
-- MCP tool definitions as thin wrappers in `server_impl.py`, guarded by `GOOGLE_API_KEY` availability.
+### v1.4.2 🚧 In Progress
+Branch: `feature/v1.4.2-assistant`
+
+#### Shipped this branch (2026-04-30)
+
+**Tool documentation system:**
+- `src/first_mcp/tool_docs/` — new directory bundled with the package. One `.md` file per complex tool.
+- **`tool_info(tool_name)`** — new MCP tool. Returns the markdown doc for the named tool. `tool_name="list"` enumerates available docs. Allows tool docstrings to stay lean while detailed workflow guidance remains on-demand.
+- Five `.md` files created: `memory_workflow_guide`, `tinydb_memorize`, `tinydb_search_memories`, `tinydb_list_memories`, `workspace_edit_textfile`.
+- All bloated docstrings slimmed to 1-2 sentence description + lean `Args:` block (−413 lines from `server_impl.py`).
+- `memory_workflow_guide` function body gutted: static JSON documentation (~250 lines) removed; function now returns only the `best_practices` category lookup.
+- Convention documented in `CLAUDE.md`.
+
+**`tinydb_search_memories` — parameter rename:**
+- `query` → `content_keywords` to make the non-semantic, substring-only nature explicit.
+- Bug fix: the rename left `query.split()` in the filter body — corrected to `content_keywords.split()`.
+
+**`tinydb_get_all_tags` — `cap` parameter:**
+- `cap: int = 100` limits output to the N most-used tags. `cap=0` means uncapped. Prevents context flooding on large tag stores.
+
+#### Designed but not yet implemented
+
+**Agentic tag enrichment — background asyncio agent:**
+
+Architecture locked. Key decisions:
+
+- **Integration point**: FastMCP `lifespan` context manager (passed to `FastMCP.__init__(lifespan=...)`). Confirmed available in FastMCP 2.11.0. Starts a background `asyncio.Task` at server startup; cancels it cleanly at shutdown.
+- **Zero latency on tool calls**: `tinydb_memorize` is unchanged. The agent runs entirely in the background.
+- **Enrichment register**: separate TinyDB table (`tinydb_enrichment.json`) recording which memory IDs have been reviewed. Absence from the register = candidate for enrichment. `tinydb_update_memory` (tag changes) deletes the record so the memory is re-evaluated.
+- **Scope**: all memories, including historical ones — not just newly stored.
+- **Loop cadence**: short sleep (~60s) while unreviewed memories remain; long sleep (~20 min) when all are covered.
+- **Async API**: `client.aio.models.generate_content()` and `client.aio.models.embed_content()` (both available via `google.genai`). TinyDB accessed synchronously (fast in-process I/O; acceptable).
+- **Batch Gemini call**: N memories per prompt → one API call per cycle regardless of batch size.
+- **Structured output**: `response_schema` with a Pydantic `BatchResponse` model. Per-memory response specifies: `replace` (dict of old→existing tag), `add_existing` (tags already in registry), `add_new` (tags requiring embedding registration), `drop`.
+- **Pre-fetch before LLM call**: `find_similar_tags_internal()` run per tag to populate the prompt with similarity candidates. Informs replacement decisions without requiring the LLM to guess vocabulary.
+- **Hard replacement guardrail**: only suggest replacement when similarity > threshold AND candidate has higher usage count than original. Proper nouns and project names protected by prompt instruction.
+- **New tag registration**: `add_new` tags require embedding generation; calls gathered with `asyncio.gather()` then written to the tag registry before updating the memory record.
+- **Implementation home**: new `src/first_mcp/memory/tag_enrichment.py` module.
+
+**Other originally planned items (still pending):**
+- `second_opinion` / assistant tools via `src/first_mcp/assistant.py`
+- Expired memories ranked last rather than excluded
 
 ## Version 2.0 - Modular Architecture 🚧
 
@@ -334,5 +363,5 @@ Create a thriving ecosystem of MCP servers that can be:
 ---
 
 **Maintained by**: Torbjørn Wikestad
-**Last Updated**: 2026-04-28
+**Last Updated**: 2026-04-30
 **Next Review**: On v2.0 planning
