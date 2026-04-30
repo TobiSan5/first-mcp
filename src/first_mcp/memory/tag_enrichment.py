@@ -43,7 +43,7 @@ from .tag_tools import tinydb_find_similar_tags, increment_tag_usage, decrement_
 from ..embeddings import cosine_similarity as _cosine_similarity, EMBEDDING_MODEL
 
 
-ENRICHMENT_LLM_MODEL = "gemini-2.0-flash"
+ENRICHMENT_LLM_MODEL = "gemini-2.5-flash"
 REPLACEMENT_SIMILARITY_THRESHOLD = 0.85
 DEFAULT_BATCH_SIZE = 10
 
