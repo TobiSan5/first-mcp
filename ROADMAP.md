@@ -79,15 +79,15 @@ Date-based sorting and category browsing for memory retrieval:
 - `CLAUDE.md` testing section expanded with concrete patterns for each tier.
 - Tests: 10 new `TestDateSortKey` unit tests in `data_processing/test_memory_retrieval.py`; 7 new server-implementation tests covering `last_modified` priority, tag filter preservation under date sort, cross-page sort order, and category+sort combined.
 
-### v1.4.2 🚧 In Progress
+### v1.5.0 🚧 In Progress
 Branch: `feature/v1.4.2-assistant`
 
-#### Shipped this branch (2026-04-30)
+#### Shipped this branch (2026-04-30 → 2026-05-01)
 
 **Tool documentation system:**
 - `src/first_mcp/tool_docs/` — new directory bundled with the package. One `.md` file per complex tool.
 - **`tool_info(tool_name)`** — new MCP tool. Returns the markdown doc for the named tool. `tool_name="list"` enumerates available docs. Allows tool docstrings to stay lean while detailed workflow guidance remains on-demand.
-- Five `.md` files created: `memory_workflow_guide`, `tinydb_memorize`, `tinydb_search_memories`, `tinydb_list_memories`, `workspace_edit_textfile`.
+- Six `.md` files: `memory_workflow_guide`, `tinydb_memorize`, `tinydb_search_memories`, `tinydb_list_memories`, `workspace_edit_textfile`, `second_opinion`.
 - All bloated docstrings slimmed to 1-2 sentence description + lean `Args:` block (−413 lines from `server_impl.py`).
 - `memory_workflow_guide` function body gutted: static JSON documentation (~250 lines) removed; function now returns only the `best_practices` category lookup.
 - Convention documented in `CLAUDE.md`.
@@ -99,27 +99,32 @@ Branch: `feature/v1.4.2-assistant`
 **`tinydb_get_all_tags` — `cap` parameter:**
 - `cap: int = 100` limits output to the N most-used tags. `cap=0` means uncapped. Prevents context flooding on large tag stores.
 
-#### Designed but not yet implemented
-
 **Agentic tag enrichment — background asyncio agent:**
+- `src/first_mcp/memory/tag_enrichment.py` — new module. Background `asyncio.Task` started from FastMCP `lifespan`. Enriches un-reviewed memory tags with a single batch Gemini call per cycle.
+- Enrichment register: separate TinyDB table (`tinydb_enrichment.json`). Absence = candidate; `tinydb_update_memory` on tag change removes the record so memory is re-evaluated.
+- Structured output via Pydantic `BatchResponse` schema: `replacements`, `add_existing`, `add_new`, `drop` per memory.
+- Hard replacement guardrail: cosine similarity > `REPLACEMENT_SIMILARITY_THRESHOLD` (0.85) AND new tag has higher usage count than old.
+- Apply-patch order: replacements → drops → adds. Adds capped at `FIRST_MCP_MAX_TAGS` (default 4); drops refused if they would go below `FIRST_MCP_MIN_TAGS` (default 2).
+- Loop model configurable via `FIRST_MCP_ENRICHMENT_MODEL` (default `gemini-2.5-flash`). Loop suppressed when `FIRST_MCP_ENRICHMENT_DISABLED=1`.
+- Tests: 16 unit tests (`data_processing/test_tag_enrichment.py`); 9 live Gemini tests (`server_intelligence/test_tag_enrichment.py`).
 
-Architecture locked. Key decisions:
+**`second_opinion` — Gemini-backed assistant tool:**
+- `src/first_mcp/assistant.py` — business layer. `get_second_opinion(question, context)` calls Gemini synchronously and returns `{success, answer, model}`.
+- Model configurable via `FIRST_MCP_ASSISTANT_MODEL` (default `gemini-2.5-flash`).
+- MCP tool: thin wrapper in `server_impl.py`.
+- Tool doc: `src/first_mcp/tool_docs/second_opinion.md`.
 
-- **Integration point**: FastMCP `lifespan` context manager (passed to `FastMCP.__init__(lifespan=...)`). Confirmed available in FastMCP 2.11.0. Starts a background `asyncio.Task` at server startup; cancels it cleanly at shutdown.
-- **Zero latency on tool calls**: `tinydb_memorize` is unchanged. The agent runs entirely in the background.
-- **Enrichment register**: separate TinyDB table (`tinydb_enrichment.json`) recording which memory IDs have been reviewed. Absence from the register = candidate for enrichment. `tinydb_update_memory` (tag changes) deletes the record so the memory is re-evaluated.
-- **Scope**: all memories, including historical ones — not just newly stored.
-- **Loop cadence**: short sleep (~60s) while unreviewed memories remain; long sleep (~20 min) when all are covered.
-- **Async API**: `client.aio.models.generate_content()` and `client.aio.models.embed_content()` (both available via `google.genai`). TinyDB accessed synchronously (fast in-process I/O; acceptable).
-- **Batch Gemini call**: N memories per prompt → one API call per cycle regardless of batch size.
-- **Structured output**: `response_schema` with a Pydantic `BatchResponse` model. Per-memory response specifies: `replace` (dict of old→existing tag), `add_existing` (tags already in registry), `add_new` (tags requiring embedding registration), `drop`.
-- **Pre-fetch before LLM call**: `find_similar_tags_internal()` run per tag to populate the prompt with similarity candidates. Informs replacement decisions without requiring the LLM to guess vocabulary.
-- **Hard replacement guardrail**: only suggest replacement when similarity > threshold AND candidate has higher usage count than original. Proper nouns and project names protected by prompt instruction.
-- **New tag registration**: `add_new` tags require embedding generation; calls gathered with `asyncio.gather()` then written to the tag registry before updating the memory record.
-- **Implementation home**: new `src/first_mcp/memory/tag_enrichment.py` module.
+**Strict layer separation — server_impl.py rewritten:**
+- Every `@mcp.tool()` is now a one-line wrapper: call one business-layer function, return `add_server_timestamp(result)`. No TinyDB, no inline logic.
 
-**Other originally planned items (still pending):**
-- `second_opinion` / assistant tools via `src/first_mcp/assistant.py`
+**Relevance scoring formula updated:**
+- Sum-of-squares tag similarity + importance weighting: `rank_score = Σ sim² + 0.333 × importance`.
+- Documented in `src/first_mcp/tool_docs/tinydb_search_memories.md`.
+
+**Test isolation for server_implementation tier:**
+- All five `tests/server_implementation/` files now set `FIRST_MCP_DATA_PATH` to a temp dir and `FIRST_MCP_ENRICHMENT_DISABLED=1`.
+
+**Pending:**
 - Expired memories ranked last rather than excluded
 
 ## Version 2.0 - Modular Architecture 🚧
@@ -363,5 +368,5 @@ Create a thriving ecosystem of MCP servers that can be:
 ---
 
 **Maintained by**: Torbjørn Wikestad
-**Last Updated**: 2026-04-30
+**Last Updated**: 2026-05-01
 **Next Review**: On v2.0 planning

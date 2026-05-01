@@ -57,6 +57,8 @@ try:
 except ImportError:
     TAG_ENRICHMENT_AVAILABLE = False
 
+from .assistant import get_second_opinion as _get_second_opinion
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -924,6 +926,27 @@ def get_workspace_info() -> Dict[str, Any]:
         return add_server_timestamp(result)
     except Exception as e:
         return add_server_timestamp({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Assistant tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def second_opinion(question: str, context: str = "") -> Dict[str, Any]:
+    """
+    Ask Gemini for a second opinion on any question.
+
+    Useful when a different model perspective is helpful — analysis, wording,
+    trade-offs, or a sanity check. The answer is returned as plain text and
+    should be treated as one input, not ground truth.
+
+    Args:
+        question: The question to ask Gemini.
+        context:  Optional background context to include (e.g. a code snippet,
+                  a summary of the situation, or relevant facts).
+    """
+    return add_server_timestamp(_get_second_opinion(question=question, context=context))
 
 
 # ---------------------------------------------------------------------------
