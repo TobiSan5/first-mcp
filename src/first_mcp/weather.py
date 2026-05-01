@@ -16,6 +16,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 import json
 import os
+import sys
 
 
 class WeatherAPI:
@@ -84,7 +85,7 @@ class WeatherAPI:
             # Store expires header for caching info
             expires = response.headers.get('Expires')
             if expires:
-                print(f"API response expires: {expires}")
+                print(f"API response expires: {expires}", file=sys.stderr)
             
             return response.json()
             
