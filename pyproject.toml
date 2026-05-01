@@ -65,6 +65,8 @@ Documentation = "https://github.com/TobiSan5/first-mcp#readme"
 first-mcp = "first_mcp.server:main"
 # Legacy compatibility (same as main for now)
 first-mcp-legacy = "first_mcp.server:main"
+# Standalone tag enrichment runner — schedule externally, do not run inside the server
+first-mcp-enrich = "first_mcp.utilities.enrich_runner:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

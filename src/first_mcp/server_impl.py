@@ -9,11 +9,8 @@ No TinyDB access, no business logic, no if/else branching beyond what
 FastMCP requires for parameter defaults.
 """
 
-import asyncio
-import contextlib
 import os
 import sys
-from contextlib import asynccontextmanager
 from typing import List, Dict, Any
 
 from fastmcp import FastMCP
@@ -51,12 +48,6 @@ from .memory import (
     cleanup_paginated_files,
 )
 
-try:
-    from .memory.tag_enrichment import tag_enrichment_loop as _tag_enrichment_loop
-    TAG_ENRICHMENT_AVAILABLE = True
-except ImportError:
-    TAG_ENRICHMENT_AVAILABLE = False
-
 from .assistant import get_second_opinion as _get_second_opinion
 
 
@@ -84,20 +75,7 @@ def add_server_timestamp(response: Dict[str, Any]) -> Dict[str, Any]:
 # Server lifecycle
 # ---------------------------------------------------------------------------
 
-@asynccontextmanager
-async def _lifespan(server: FastMCP):
-    enrichment_on = TAG_ENRICHMENT_AVAILABLE and not os.getenv('FIRST_MCP_ENRICHMENT_DISABLED')
-    task = asyncio.create_task(_tag_enrichment_loop()) if enrichment_on else None
-    try:
-        yield {}
-    finally:
-        if task is not None:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-
-
-mcp = FastMCP(name="First MCP Server", lifespan=_lifespan)
+mcp = FastMCP(name="First MCP Server")
 
 # Module-level singletons
 workspace_manager = WorkspaceManager()
