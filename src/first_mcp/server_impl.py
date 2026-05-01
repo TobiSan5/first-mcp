@@ -84,7 +84,8 @@ def add_server_timestamp(response: Dict[str, Any]) -> Dict[str, Any]:
 
 @asynccontextmanager
 async def _lifespan(server: FastMCP):
-    task = asyncio.create_task(_tag_enrichment_loop()) if TAG_ENRICHMENT_AVAILABLE else None
+    enrichment_on = TAG_ENRICHMENT_AVAILABLE and not os.getenv('FIRST_MCP_ENRICHMENT_DISABLED')
+    task = asyncio.create_task(_tag_enrichment_loop()) if enrichment_on else None
     try:
         yield {}
     finally:

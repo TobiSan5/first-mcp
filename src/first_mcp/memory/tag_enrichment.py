@@ -43,7 +43,9 @@ from .tag_tools import tinydb_find_similar_tags, increment_tag_usage, decrement_
 from ..embeddings import cosine_similarity as _cosine_similarity, EMBEDDING_MODEL
 
 
-ENRICHMENT_LLM_MODEL = "gemini-2.5-flash"
+ENRICHMENT_LLM_MODEL = os.getenv('FIRST_MCP_ENRICHMENT_MODEL', 'gemini-2.5-flash')
+MAX_TAGS_PER_MEMORY = int(os.getenv('FIRST_MCP_MAX_TAGS', '4'))
+MIN_TAGS_PER_MEMORY = int(os.getenv('FIRST_MCP_MIN_TAGS', '2'))
 REPLACEMENT_SIMILARITY_THRESHOLD = 0.85
 DEFAULT_BATCH_SIZE = 10
 
@@ -214,6 +216,10 @@ def _build_prompt(memories: List[Dict[str, Any]], similar_map: Dict[str, List[Di
     lines = [
         "You are a memory tag quality agent. Review each memory and suggest minimal tag improvements.",
         "",
+        f"Tag count target: {MIN_TAGS_PER_MEMORY}–{MAX_TAGS_PER_MEMORY} tags per memory.",
+        f"- If current_tags has fewer than {MIN_TAGS_PER_MEMORY}, add missing relevant tags.",
+        f"- If current_tags already has {MAX_TAGS_PER_MEMORY} or more, do not suggest any additions.",
+        "",
         "Rules:",
         "- REPLACE: swap a tag for a semantically equivalent canonical tag already in the registry.",
         "  Never replace proper nouns, project names, or abbreviations with generic terms.",
@@ -323,7 +329,7 @@ async def enrich_batch(memory_ids: List[str]) -> Dict[str, Any]:
         original_tags = list(tags)
         tags_added: List[str] = []
 
-        # Replacements — hard guardrail enforced independently of LLM judgment
+        # 1. Replacements — hard guardrail enforced independently of LLM judgment
         replaced_out: List[str] = []
         for repl in patch.replacements:
             if repl.old_tag in tags and _replacement_passes_guardrail(repl.old_tag, repl.new_tag):
@@ -335,31 +341,35 @@ async def enrich_batch(memory_ids: List[str]) -> Dict[str, Any]:
                 total_replaced += 1
         decrement_tag_usage(replaced_out)
 
-        # Add existing registry tags; bump their usage count
-        to_add_existing = [t for t in patch.add_existing if t not in tags]
+        # 2. Drops — applied before adds so freed slots can be filled
+        dropped: List[str] = []
+        for tag in patch.drop:
+            if tag in tags and len(tags) - len(dropped) > MIN_TAGS_PER_MEMORY:
+                dropped.append(tag)
+                total_dropped += 1
+        for tag in dropped:
+            tags.remove(tag)
+        decrement_tag_usage(dropped)
+
+        # 3. Adds — capped so total never exceeds MAX_TAGS_PER_MEMORY
+        slots = max(0, MAX_TAGS_PER_MEMORY - len(tags))
+
+        to_add_existing = [t for t in patch.add_existing if t not in tags][:slots]
         if to_add_existing:
             increment_tag_usage(to_add_existing)
             tags.extend(to_add_existing)
             tags_added.extend(to_add_existing)
             total_added += len(to_add_existing)
+            slots -= len(to_add_existing)
 
-        # Register truly-new tags with async concurrent embedding, then add
-        if patch.add_new:
+        if patch.add_new and slots > 0:
             await _register_new_tags_async(client, patch.add_new)
             for tag in patch.add_new:
-                if tag not in tags:
+                if tag not in tags and slots > 0:
                     tags.append(tag)
                     tags_added.append(tag)
                     total_added += 1
-
-        # Drop tags and decrement their usage counts
-        dropped: List[str] = []
-        for tag in patch.drop:
-            if tag in tags:
-                tags.remove(tag)
-                dropped.append(tag)
-                total_dropped += 1
-        decrement_tag_usage(dropped)
+                    slots -= 1
 
         # Write back only if something changed
         if tags != original_tags:

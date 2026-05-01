@@ -13,10 +13,15 @@ Tests the MCP server layer using FastMCP client to validate:
 import asyncio
 import os
 import sys
+import tempfile
 from fastmcp import Client
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+
+_TMPDIR = tempfile.mkdtemp()
+os.environ['FIRST_MCP_DATA_PATH'] = _TMPDIR
+os.environ['FIRST_MCP_ENRICHMENT_DISABLED'] = '1'
 
 
 async def test_mcp_server_connectivity():

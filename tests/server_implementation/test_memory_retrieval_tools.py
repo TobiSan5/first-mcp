@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 # Point all TinyDB writes to a temporary directory for the entire test session
 _TMPDIR = tempfile.mkdtemp()
 os.environ['FIRST_MCP_DATA_PATH'] = _TMPDIR
+os.environ['FIRST_MCP_ENRICHMENT_DISABLED'] = '1'
 
 
 # ---------------------------------------------------------------------------
