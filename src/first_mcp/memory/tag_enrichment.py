@@ -26,6 +26,7 @@ import contextlib
 import os
 import pathlib
 import sys
+import traceback
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -424,13 +425,12 @@ async def tag_enrichment_loop(
     Short sleep (~60 s) while unenriched memories exist; long sleep (~20 min) when
     all are covered. Start this as an asyncio.Task from the FastMCP lifespan.
     """
-    # Yield immediately so the MCP handshake (initialize + list_tools) completes
-    # before this task does any work.
-    await asyncio.sleep(0)
     print("Tag enrichment agent started.", file=sys.stderr)
 
+    sleep_next = interval_short  # first sleep acts as startup grace period
     while True:
         try:
+            await asyncio.sleep(sleep_next)
             candidates = get_unenriched_memory_ids(batch_size)
 
             if candidates:
@@ -440,13 +440,14 @@ async def tag_enrichment_loop(
                 )
                 result = await enrich_batch(candidates)
                 print(f"[tag_enrichment] {result}", file=sys.stderr)
-                await asyncio.sleep(interval_short)
+                sleep_next = interval_short
             else:
-                await asyncio.sleep(interval_long)
+                sleep_next = interval_long
 
         except asyncio.CancelledError:
             print("Tag enrichment agent stopped.", file=sys.stderr)
             raise
         except Exception as exc:
             print(f"[tag_enrichment] Error: {exc}", file=sys.stderr)
-            await asyncio.sleep(interval_short)
+            traceback.print_exc(file=sys.stderr)
+            sleep_next = interval_short
