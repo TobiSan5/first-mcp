@@ -132,51 +132,34 @@ def _get_tag_meta(tag_name: str) -> Optional[Dict[str, Any]]:
     return results[0] if results else None
 
 
-async def _register_new_tags_async(client: "genai.Client", new_tags: List[str]) -> None:
-    """Register brand-new tags with embeddings generated concurrently.
-
-    Tags that already exist in the registry are skipped (their usage count
-    will be bumped by _bump_tag_usage if needed).
-    """
+def _register_new_tags_sync(client: "genai.Client", new_tags: List[str]) -> None:
+    """Register brand-new tags with embeddings. Synchronous — call from a thread."""
     if not new_tags:
         return
 
     tags_db = get_tags_tinydb()
     tags_table = tags_db.table('tags')
-    Record = Query()
-
-    truly_new = [t for t in new_tags if not tags_table.search(Record.tag == t)]
+    truly_new = [t for t in new_tags if not tags_table.search(Query().tag == t)]
     tags_db.close()
 
     if not truly_new:
         return
 
-    # Concurrent embedding generation
-    responses = await asyncio.gather(
-        *[
-            client.aio.models.embed_content(
-                model=EMBEDDING_MODEL,
-                contents=tag,
-            )
-            for tag in truly_new
-        ],
-        return_exceptions=True,
-    )
-
     now = datetime.now().isoformat()
     tags_db = get_tags_tinydb()
     tags_table = tags_db.table('tags')
 
-    for tag, resp in zip(truly_new, responses):
-        if isinstance(resp, Exception):
-            embedding: List[float] = []
-            extra: Dict[str, Any] = {}
-        else:
-            embedding = list(resp.embeddings[0].values)
-            extra = {
+    for tag in truly_new:
+        try:
+            resp = client.models.embed_content(model=EMBEDDING_MODEL, contents=tag)
+            embedding: List[float] = list(resp.embeddings[0].values)
+            extra: Dict[str, Any] = {
                 'embedding_generated_at': now,
                 'embedding_model': EMBEDDING_MODEL,
             }
+        except Exception:
+            embedding = []
+            extra = {}
 
         tags_table.insert({
             'tag': tag,
@@ -244,19 +227,21 @@ def _build_prompt(mem: Dict[str, Any], similar_map: Dict[str, List[Dict]]) -> st
 # Core single-memory enrichment
 # ---------------------------------------------------------------------------
 
-async def enrich_single(memory_id: str) -> Dict[str, Any]:
+def enrich_single(memory_id: str) -> Dict[str, Any]:
     """
     Enrich tags for one memory with a single Gemini LLM call.
+
+    Synchronous — designed to be called via asyncio.to_thread from the loop
+    so the event loop is never blocked.
 
     Returns a summary dict with counts of actions taken.
     """
     _log(f"[enrich_single] start {memory_id[:8]}")
     import importlib
     try:
-        # Run in a thread — first import takes 3+ seconds and would block the event loop
         _log("[enrich_single] importing google.genai...")
-        genai = await asyncio.to_thread(importlib.import_module, 'google.genai')
-        genai_types = await asyncio.to_thread(importlib.import_module, 'google.genai.types')
+        genai = importlib.import_module('google.genai')
+        genai_types = importlib.import_module('google.genai.types')
         _log("[enrich_single] import done")
     except ImportError:
         return {'success': False, 'error': 'google-genai not installed'}
@@ -267,67 +252,56 @@ async def enrich_single(memory_id: str) -> Dict[str, Any]:
 
     # Load memory
     _log("[enrich_single] loading memory from TinyDB")
-    def _load_memory_sync():
-        db = get_memory_tinydb()
-        rows = db.table('memories').search(Query().id == memory_id)
-        db.close()
-        return rows
-
-    rows = await asyncio.to_thread(_load_memory_sync)
+    db = get_memory_tinydb()
+    rows = db.table('memories').search(Query().id == memory_id)
+    db.close()
 
     if not rows:
         return {'success': False, 'error': f'Memory {memory_id} not found'}
 
     mem = rows[0]
 
-    # Build similar_map — TinyDB read + cosine similarity loop are both blocking;
-    # run in a thread so the event loop stays free during the ~3s wall time.
+    # Build similar_map: load full tag registry and compute cosine similarity
     _log("[enrich_single] loading tag registry")
-    current_tags = list(mem.get('tags', []))
+    tags_db = get_tags_tinydb()
+    all_tag_records = tags_db.table('tags').all()
+    tags_db.close()
 
-    def _build_similar_map_sync() -> Dict[str, List[Dict]]:
-        tags_db = get_tags_tinydb()
-        all_tag_records = tags_db.table('tags').all()
-        tags_db.close()
-
-        registry = {
-            r['tag']: {
-                'embedding': r.get('embedding', []),
-                'usage_count': r.get('usage_count', 0),
-            }
-            for r in all_tag_records
-            if r.get('tag') and r.get('embedding')
+    registry = {
+        r['tag']: {
+            'embedding': r.get('embedding', []),
+            'usage_count': r.get('usage_count', 0),
         }
+        for r in all_tag_records
+        if r.get('tag') and r.get('embedding')
+    }
 
-        result: Dict[str, List[Dict]] = {}
-        for tag in current_tags:
-            tag_emb = registry.get(tag, {}).get('embedding', [])
-            if not tag_emb:
-                result[tag] = []
+    similar_map: Dict[str, List[Dict]] = {}
+    for tag in mem.get('tags', []):
+        tag_emb = registry.get(tag, {}).get('embedding', [])
+        if not tag_emb:
+            similar_map[tag] = []
+            continue
+        candidates = []
+        for other_tag, other_data in registry.items():
+            if other_tag == tag:
                 continue
-            candidates = []
-            for other_tag, other_data in registry.items():
-                if other_tag == tag:
-                    continue
-                sim = _cosine_similarity(tag_emb, other_data['embedding'])
-                if sim >= 0.55:
-                    candidates.append({
-                        'tag': other_tag,
-                        'similarity': round(sim, 4),
-                        'usage_count': other_data['usage_count'],
-                    })
-            candidates.sort(key=lambda x: (x['similarity'], x['usage_count']), reverse=True)
-            result[tag] = candidates[:6]
-        return result
+            sim = _cosine_similarity(tag_emb, other_data['embedding'])
+            if sim >= 0.55:
+                candidates.append({
+                    'tag': other_tag,
+                    'similarity': round(sim, 4),
+                    'usage_count': other_data['usage_count'],
+                })
+        candidates.sort(key=lambda x: (x['similarity'], x['usage_count']), reverse=True)
+        similar_map[tag] = candidates[:6]
 
-    similar_map = await asyncio.to_thread(_build_similar_map_sync)
     _log("[enrich_single] similar_map built")
-
     prompt = _build_prompt(mem, similar_map)
 
     _log("[enrich_single] calling Gemini API")
     client = genai.Client(api_key=api_key)
-    response = await client.aio.models.generate_content(
+    response = client.models.generate_content(
         model=ENRICHMENT_LLM_MODEL,
         contents=prompt,
         config=genai_types.GenerateContentConfig(
@@ -384,7 +358,7 @@ async def enrich_single(memory_id: str) -> Dict[str, Any]:
             slots -= len(to_add_existing)
 
         if patch.add_new and slots > 0:
-            await _register_new_tags_async(client, patch.add_new)
+            _register_new_tags_sync(client, patch.add_new)
             for tag in patch.add_new:
                 if tag not in tags and slots > 0:
                     tags.append(tag)
@@ -436,7 +410,7 @@ async def tag_enrichment_loop(
             if candidates:
                 _log(f"[tag_enrichment] {len(candidates)} memories to enrich.")
                 for memory_id in candidates:
-                    result = await enrich_single(memory_id)
+                    result = await asyncio.to_thread(enrich_single, memory_id)
                     _log(f"[tag_enrichment] {memory_id[:8]}: {result}")
                     await asyncio.sleep(1)  # yield between API calls
                 sleep_next = interval_short
