@@ -267,52 +267,61 @@ async def enrich_single(memory_id: str) -> Dict[str, Any]:
 
     # Load memory
     _log("[enrich_single] loading memory from TinyDB")
-    memory_db = get_memory_tinydb()
-    memories_table = memory_db.table('memories')
-    Record = Query()
-    rows = memories_table.search(Record.id == memory_id)
-    memory_db.close()
+    def _load_memory_sync():
+        db = get_memory_tinydb()
+        rows = db.table('memories').search(Query().id == memory_id)
+        db.close()
+        return rows
+
+    rows = await asyncio.to_thread(_load_memory_sync)
 
     if not rows:
         return {'success': False, 'error': f'Memory {memory_id} not found'}
 
     mem = rows[0]
 
-    # Build similar_map from the in-process tag registry — one TinyDB read,
-    # pure cosine math, no embedding API calls, no event-loop blocking.
+    # Build similar_map — TinyDB read + cosine similarity loop are both blocking;
+    # run in a thread so the event loop stays free during the ~3s wall time.
     _log("[enrich_single] loading tag registry")
-    tags_db = get_tags_tinydb()
-    all_tag_records = tags_db.table('tags').all()
-    tags_db.close()
+    current_tags = list(mem.get('tags', []))
 
-    tag_registry_full = {
-        r['tag']: {
-            'embedding': r.get('embedding', []),
-            'usage_count': r.get('usage_count', 0),
+    def _build_similar_map_sync() -> Dict[str, List[Dict]]:
+        tags_db = get_tags_tinydb()
+        all_tag_records = tags_db.table('tags').all()
+        tags_db.close()
+
+        registry = {
+            r['tag']: {
+                'embedding': r.get('embedding', []),
+                'usage_count': r.get('usage_count', 0),
+            }
+            for r in all_tag_records
+            if r.get('tag') and r.get('embedding')
         }
-        for r in all_tag_records
-        if r.get('tag') and r.get('embedding')
-    }
 
-    similar_map: Dict[str, List[Dict]] = {}
-    for tag in mem.get('tags', []):
-        tag_emb = tag_registry_full.get(tag, {}).get('embedding', [])
-        if not tag_emb:
-            similar_map[tag] = []
-            continue
-        candidates = []
-        for other_tag, other_data in tag_registry_full.items():
-            if other_tag == tag:
+        result: Dict[str, List[Dict]] = {}
+        for tag in current_tags:
+            tag_emb = registry.get(tag, {}).get('embedding', [])
+            if not tag_emb:
+                result[tag] = []
                 continue
-            sim = _cosine_similarity(tag_emb, other_data['embedding'])
-            if sim >= 0.55:
-                candidates.append({
-                    'tag': other_tag,
-                    'similarity': round(sim, 4),
-                    'usage_count': other_data['usage_count'],
-                })
-        candidates.sort(key=lambda x: (x['similarity'], x['usage_count']), reverse=True)
-        similar_map[tag] = candidates[:6]
+            candidates = []
+            for other_tag, other_data in registry.items():
+                if other_tag == tag:
+                    continue
+                sim = _cosine_similarity(tag_emb, other_data['embedding'])
+                if sim >= 0.55:
+                    candidates.append({
+                        'tag': other_tag,
+                        'similarity': round(sim, 4),
+                        'usage_count': other_data['usage_count'],
+                    })
+            candidates.sort(key=lambda x: (x['similarity'], x['usage_count']), reverse=True)
+            result[tag] = candidates[:6]
+        return result
+
+    similar_map = await asyncio.to_thread(_build_similar_map_sync)
+    _log("[enrich_single] similar_map built")
 
     prompt = _build_prompt(mem, similar_map)
 
@@ -387,7 +396,7 @@ async def enrich_single(memory_id: str) -> Dict[str, Any]:
         if tags != original_tags:
             memories_table.update(
                 {'tags': tags, 'last_modified': datetime.now().isoformat()},
-                Record.id == memory_id,
+                Query().id == memory_id,
             )
 
         mark_enriched(memory_id, tags_added)
