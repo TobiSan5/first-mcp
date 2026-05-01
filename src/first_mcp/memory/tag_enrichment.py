@@ -2,8 +2,8 @@
 Agentic background tag enrichment.
 
 Runs as a long-lived asyncio.Task started from the FastMCP lifespan context manager.
-Each cycle fetches a batch of un-enriched memories, calls Gemini once with a
-structured-output schema, applies the resulting tag patches (with a hard similarity
+Each cycle fetches un-enriched memories and calls Gemini once per memory with a
+structured-output schema, applies the resulting tag patch (with a hard similarity
 guardrail on replacements), and records each memory in the enrichment register.
 
 Integration point (server_impl.py):
@@ -51,7 +51,6 @@ ENRICHMENT_LLM_MODEL = os.getenv('FIRST_MCP_ENRICHMENT_MODEL', 'gemini-2.5-flash
 MAX_TAGS_PER_MEMORY = int(os.getenv('FIRST_MCP_MAX_TAGS', '4'))
 MIN_TAGS_PER_MEMORY = int(os.getenv('FIRST_MCP_MIN_TAGS', '2'))
 REPLACEMENT_SIMILARITY_THRESHOLD = 0.85
-DEFAULT_BATCH_SIZE = 10
 
 
 # ---------------------------------------------------------------------------
@@ -64,15 +63,10 @@ class TagReplacement(BaseModel):
 
 
 class MemoryTagPatch(BaseModel):
-    memory_id: str
     replacements: List[TagReplacement]  # swap old → existing canonical tag
     add_existing: List[str]             # existing registry tags to add
     add_new: List[str]                  # new bridging tags (need embedding registration)
     drop: List[str]                     # tags to remove
-
-
-class BatchResponse(BaseModel):
-    patches: List[MemoryTagPatch]
 
 
 # ---------------------------------------------------------------------------
@@ -216,40 +210,37 @@ def _replacement_passes_guardrail(old_tag: str, new_tag: str) -> bool:
 # Prompt builder
 # ---------------------------------------------------------------------------
 
-def _build_prompt(memories: List[Dict[str, Any]], similar_map: Dict[str, List[Dict]]) -> str:
+def _build_prompt(mem: Dict[str, Any], similar_map: Dict[str, List[Dict]]) -> str:
     template = (_PROMPTS_DIR / 'tag_enrichment.md').read_text(encoding='utf-8')
     header = template.format(min_tags=MIN_TAGS_PER_MEMORY, max_tags=MAX_TAGS_PER_MEMORY)
     lines = [header]
 
-    for mem in memories:
-        mid = mem.get('id', '')
-        preview = (mem.get('content') or '')[:250].replace('\n', ' ')
-        current_tags = mem.get('tags', [])
+    preview = (mem.get('content') or '')[:250].replace('\n', ' ')
+    current_tags = mem.get('tags', [])
 
-        lines.append(f"\nmemory_id: {mid}")
-        lines.append(f"content: {preview}")
-        lines.append(f"current_tags: {current_tags}")
+    lines.append(f"content: {preview}")
+    lines.append(f"current_tags: {current_tags}")
 
-        for tag in current_tags:
-            candidates = similar_map.get(tag, [])
-            shown = [c for c in candidates if c.get('tag') != tag][:5]
-            if shown:
-                cand_str = ', '.join(
-                    f"{c['tag']}(sim={c['similarity']:.2f}, used={c['usage_count']}x)"
-                    for c in shown
-                )
-                lines.append(f"  similar_to '{tag}': [{cand_str}]")
+    for tag in current_tags:
+        candidates = similar_map.get(tag, [])
+        shown = [c for c in candidates if c.get('tag') != tag][:5]
+        if shown:
+            cand_str = ', '.join(
+                f"{c['tag']}(sim={c['similarity']:.2f}, used={c['usage_count']}x)"
+                for c in shown
+            )
+            lines.append(f"  similar_to '{tag}': [{cand_str}]")
 
     return '\n'.join(lines)
 
 
 # ---------------------------------------------------------------------------
-# Core batch enrichment
+# Core single-memory enrichment
 # ---------------------------------------------------------------------------
 
-async def enrich_batch(memory_ids: List[str]) -> Dict[str, Any]:
+async def enrich_single(memory_id: str) -> Dict[str, Any]:
     """
-    Enrich tags for a batch of memories with a single Gemini LLM call.
+    Enrich tags for one memory with a single Gemini LLM call.
 
     Returns a summary dict with counts of actions taken.
     """
@@ -260,20 +251,17 @@ async def enrich_batch(memory_ids: List[str]) -> Dict[str, Any]:
     if not api_key:
         return {'success': False, 'error': 'GOOGLE_API_KEY not set'}
 
-    # Load memories
+    # Load memory
     memory_db = get_memory_tinydb()
     memories_table = memory_db.table('memories')
     Record = Query()
-    memories = [
-        rows[0]
-        for mid in memory_ids
-        for rows in [memories_table.search(Record.id == mid)]
-        if rows
-    ]
+    rows = memories_table.search(Record.id == memory_id)
     memory_db.close()
 
-    if not memories:
-        return {'success': True, 'processed': 0}
+    if not rows:
+        return {'success': False, 'error': f'Memory {memory_id} not found'}
+
+    mem = rows[0]
 
     # Build similar_map from the in-process tag registry — one TinyDB read,
     # pure cosine math, no embedding API calls, no event-loop blocking.
@@ -285,15 +273,13 @@ async def enrich_batch(memory_ids: List[str]) -> Dict[str, Any]:
         r['tag']: {
             'embedding': r.get('embedding', []),
             'usage_count': r.get('usage_count', 0),
-            'last_used_at': r.get('last_used_at', ''),
         }
         for r in all_tag_records
         if r.get('tag') and r.get('embedding')
     }
 
-    all_tags = {tag for m in memories for tag in m.get('tags', [])}
     similar_map: Dict[str, List[Dict]] = {}
-    for tag in all_tags:
+    for tag in mem.get('tags', []):
         tag_emb = tag_registry_full.get(tag, {}).get('embedding', [])
         if not tag_emb:
             similar_map[tag] = []
@@ -308,105 +294,94 @@ async def enrich_batch(memory_ids: List[str]) -> Dict[str, Any]:
                     'tag': other_tag,
                     'similarity': round(sim, 4),
                     'usage_count': other_data['usage_count'],
-                    'last_used': other_data['last_used_at'],
                 })
         candidates.sort(key=lambda x: (x['similarity'], x['usage_count']), reverse=True)
         similar_map[tag] = candidates[:6]
 
-    prompt = _build_prompt(memories, similar_map)
+    prompt = _build_prompt(mem, similar_map)
 
-    # Single async Gemini call with structured output
     client = genai.Client(api_key=api_key)
     response = await client.aio.models.generate_content(
         model=ENRICHMENT_LLM_MODEL,
         contents=prompt,
         config=genai_types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_schema=BatchResponse,
+            response_schema=MemoryTagPatch,
         ),
     )
 
-    batch_result = BatchResponse.model_validate_json(response.text)
+    patch = MemoryTagPatch.model_validate_json(response.text)
 
-    # Apply patches
-    total_replaced = 0
-    total_added = 0
-    total_dropped = 0
-
+    # Apply patch
     memory_db = get_memory_tinydb()
     memories_table = memory_db.table('memories')
 
     try:
-        for patch in batch_result.patches:
-            mid = patch.memory_id
-            rows = memories_table.search(Record.id == mid)
-            if not rows:
-                continue
+        tags: List[str] = list(mem.get('tags', []))
+        original_tags = list(tags)
+        tags_added: List[str] = []
+        replaced = 0
+        added = 0
+        dropped = 0
 
-            mem = rows[0]
-            tags: List[str] = list(mem.get('tags', []))
-            original_tags = list(tags)
-            tags_added: List[str] = []
+        # 1. Replacements — hard guardrail enforced independently of LLM judgment
+        replaced_out: List[str] = []
+        for repl in patch.replacements:
+            if repl.old_tag in tags and _replacement_passes_guardrail(repl.old_tag, repl.new_tag):
+                tags.remove(repl.old_tag)
+                replaced_out.append(repl.old_tag)
+                if repl.new_tag not in tags:
+                    tags.append(repl.new_tag)
+                    increment_tag_usage([repl.new_tag])
+                replaced += 1
+        decrement_tag_usage(replaced_out)
 
-            # 1. Replacements — hard guardrail enforced independently of LLM judgment
-            replaced_out: List[str] = []
-            for repl in patch.replacements:
-                if repl.old_tag in tags and _replacement_passes_guardrail(repl.old_tag, repl.new_tag):
-                    tags.remove(repl.old_tag)
-                    replaced_out.append(repl.old_tag)
-                    if repl.new_tag not in tags:
-                        tags.append(repl.new_tag)
-                        increment_tag_usage([repl.new_tag])
-                    total_replaced += 1
-            decrement_tag_usage(replaced_out)
+        # 2. Drops — applied before adds so freed slots can be filled
+        dropped_tags: List[str] = []
+        for tag in patch.drop:
+            if tag in tags and len(tags) - len(dropped_tags) > MIN_TAGS_PER_MEMORY:
+                dropped_tags.append(tag)
+                dropped += 1
+        for tag in dropped_tags:
+            tags.remove(tag)
+        decrement_tag_usage(dropped_tags)
 
-            # 2. Drops — applied before adds so freed slots can be filled
-            dropped: List[str] = []
-            for tag in patch.drop:
-                if tag in tags and len(tags) - len(dropped) > MIN_TAGS_PER_MEMORY:
-                    dropped.append(tag)
-                    total_dropped += 1
-            for tag in dropped:
-                tags.remove(tag)
-            decrement_tag_usage(dropped)
+        # 3. Adds — capped so total never exceeds MAX_TAGS_PER_MEMORY
+        slots = max(0, MAX_TAGS_PER_MEMORY - len(tags))
 
-            # 3. Adds — capped so total never exceeds MAX_TAGS_PER_MEMORY
-            slots = max(0, MAX_TAGS_PER_MEMORY - len(tags))
+        to_add_existing = [t for t in patch.add_existing if t not in tags][:slots]
+        if to_add_existing:
+            increment_tag_usage(to_add_existing)
+            tags.extend(to_add_existing)
+            tags_added.extend(to_add_existing)
+            added += len(to_add_existing)
+            slots -= len(to_add_existing)
 
-            to_add_existing = [t for t in patch.add_existing if t not in tags][:slots]
-            if to_add_existing:
-                increment_tag_usage(to_add_existing)
-                tags.extend(to_add_existing)
-                tags_added.extend(to_add_existing)
-                total_added += len(to_add_existing)
-                slots -= len(to_add_existing)
+        if patch.add_new and slots > 0:
+            await _register_new_tags_async(client, patch.add_new)
+            for tag in patch.add_new:
+                if tag not in tags and slots > 0:
+                    tags.append(tag)
+                    tags_added.append(tag)
+                    added += 1
+                    slots -= 1
 
-            if patch.add_new and slots > 0:
-                await _register_new_tags_async(client, patch.add_new)
-                for tag in patch.add_new:
-                    if tag not in tags and slots > 0:
-                        tags.append(tag)
-                        tags_added.append(tag)
-                        total_added += 1
-                        slots -= 1
+        # Write back only if something changed
+        if tags != original_tags:
+            memories_table.update(
+                {'tags': tags, 'last_modified': datetime.now().isoformat()},
+                Record.id == memory_id,
+            )
 
-            # Write back only if something changed
-            if tags != original_tags:
-                memories_table.update(
-                    {'tags': tags, 'last_modified': datetime.now().isoformat()},
-                    Record.id == mid,
-                )
-
-            mark_enriched(mid, tags_added)
+        mark_enriched(memory_id, tags_added)
     finally:
         memory_db.close()
 
     return {
         'success': True,
-        'processed': len(memories),
-        'replaced': total_replaced,
-        'added': total_added,
-        'dropped': total_dropped,
+        'replaced': replaced,
+        'added': added,
+        'dropped': dropped,
     }
 
 
@@ -417,13 +392,12 @@ async def enrich_batch(memory_ids: List[str]) -> Dict[str, Any]:
 async def tag_enrichment_loop(
     interval_short: int = 60,
     interval_long: int = 1200,
-    batch_size: int = DEFAULT_BATCH_SIZE,
 ) -> None:
     """
-    Infinite background loop enriching un-reviewed memory tags.
+    Infinite background loop enriching un-reviewed memory tags one at a time.
 
-    Short sleep (~60 s) while unenriched memories exist; long sleep (~20 min) when
-    all are covered. Start this as an asyncio.Task from the FastMCP lifespan.
+    Short sleep (~60 s) after a cycle that found work; long sleep (~20 min) when
+    all memories are covered. Start this as an asyncio.Task from the FastMCP lifespan.
     """
     print("Tag enrichment agent started.", file=sys.stderr)
 
@@ -431,15 +405,17 @@ async def tag_enrichment_loop(
     while True:
         try:
             await asyncio.sleep(sleep_next)
-            candidates = get_unenriched_memory_ids(batch_size)
+            candidates = get_unenriched_memory_ids(limit=50)
 
             if candidates:
                 print(
-                    f"[tag_enrichment] Processing {len(candidates)} memories...",
+                    f"[tag_enrichment] {len(candidates)} memories to enrich.",
                     file=sys.stderr,
                 )
-                result = await enrich_batch(candidates)
-                print(f"[tag_enrichment] {result}", file=sys.stderr)
+                for memory_id in candidates:
+                    result = await enrich_single(memory_id)
+                    print(f"[tag_enrichment] {memory_id[:8]}: {result}", file=sys.stderr)
+                    await asyncio.sleep(1)  # yield between API calls
                 sleep_next = interval_short
             else:
                 sleep_next = interval_long

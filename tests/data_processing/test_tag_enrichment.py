@@ -8,7 +8,7 @@ Covers:
   - Replacement guardrail          (_replacement_passes_guardrail)
 
 All tests use synthetic data and a temp FIRST_MCP_DATA_PATH.
-No GOOGLE_API_KEY required — live enrich_batch tests are in
+No GOOGLE_API_KEY required — live enrich_single tests are in
 tests/server_intelligence/test_tag_enrichment.py.
 """
 

@@ -81,7 +81,7 @@ from .pagination import save_paginated_results, get_next_page, cleanup_paginated
 from .tag_scoring import build_tag_registry, score_memories_by_tags
 from .tag_enrichment import (
     tag_enrichment_loop,
-    enrich_batch,
+    enrich_single,
     mark_enriched,
     remove_from_enrichment_register,
     get_unenriched_memory_ids,
@@ -118,6 +118,6 @@ __all__ = [
     'build_tag_registry', 'score_memories_by_tags',
 
     # Tag enrichment agent
-    'tag_enrichment_loop', 'enrich_batch',
+    'tag_enrichment_loop', 'enrich_single',
     'mark_enriched', 'remove_from_enrichment_register', 'get_unenriched_memory_ids',
 ]

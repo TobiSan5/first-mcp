@@ -2,7 +2,7 @@
 """
 Server Intelligence Tests — Tag Enrichment Agent (live Gemini API)
 
-Tests enrich_batch end-to-end against the real Gemini API.
+Tests enrich_single end-to-end against the real Gemini API.
 Skipped when GOOGLE_API_KEY is not set.
 
 All tests write to a temp FIRST_MCP_DATA_PATH — no production data is touched.
@@ -48,18 +48,18 @@ def _get_memory(mid):
 
 
 @unittest.skipUnless(_HAS_API_KEY, 'GOOGLE_API_KEY not set')
-class TestEnrichBatch(unittest.TestCase):
+class TestEnrichSingle(unittest.TestCase):
     """
-    Live tests for enrich_batch.  Each test gets a clean memory and enrichment
+    Live tests for enrich_single.  Each test gets a clean memory and enrichment
     table so tests are independent of each other.
     """
 
     def setUp(self):
         from first_mcp.memory.database import get_memory_tinydb, get_enrichment_tinydb
-        from first_mcp.memory.tag_enrichment import enrich_batch, get_unenriched_memory_ids
+        from first_mcp.memory.tag_enrichment import enrich_single, get_unenriched_memory_ids
         from first_mcp.memory.tag_tools import tinydb_register_tags
 
-        self.enrich = enrich_batch
+        self.enrich = enrich_single
         self.unenriched = get_unenriched_memory_ids
         self.register_tags = tinydb_register_tags
 
@@ -78,60 +78,50 @@ class TestEnrichBatch(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_returns_success_structure(self):
-        """enrich_batch returns a dict with the required keys and success=True."""
+        """enrich_single returns a dict with the required keys and success=True."""
         self.register_tags(['python', 'web-development'])
         _insert_memory('m1', 'Building web APIs with Python and FastAPI.', ['python', 'web-development'])
 
-        result = asyncio.run(self.enrich(['m1']))
+        result = asyncio.run(self.enrich('m1'))
 
         self.assertIsInstance(result, dict)
         self.assertTrue(result.get('success'), f'Expected success=True, got: {result}')
-        for key in ('processed', 'replaced', 'added', 'dropped'):
+        for key in ('replaced', 'added', 'dropped'):
             self.assertIn(key, result, f"Missing key '{key}'")
-        self.assertIsInstance(result['processed'], int)
         self.assertIsInstance(result['replaced'], int)
         self.assertIsInstance(result['added'], int)
         self.assertIsInstance(result['dropped'], int)
 
-    def test_processed_count_matches_input(self):
-        """processed count equals the number of existing memory IDs passed in."""
-        self.register_tags(['machine-learning', 'python'])
-        _insert_memory('a', 'Training neural networks with PyTorch.', ['machine-learning', 'python'])
-        _insert_memory('b', 'Data preprocessing pipelines for ML models.', ['machine-learning'])
+    def test_nonexistent_id_returns_error(self):
+        """A memory ID not in the DB returns success=False with an error key."""
+        result = asyncio.run(self.enrich('does-not-exist'))
 
-        result = asyncio.run(self.enrich(['a', 'b']))
-
-        self.assertEqual(result['processed'], 2)
-
-    def test_nonexistent_ids_ignored(self):
-        """IDs not in the DB are silently skipped; processed=0 and success=True."""
-        result = asyncio.run(self.enrich(['does-not-exist']))
-
-        self.assertTrue(result.get('success'))
-        self.assertEqual(result['processed'], 0)
+        self.assertFalse(result.get('success'))
+        self.assertIn('error', result)
 
     # ------------------------------------------------------------------
     # Enrichment register
     # ------------------------------------------------------------------
 
-    def test_memory_marked_enriched_after_batch(self):
-        """All processed memories are added to the enrichment register."""
+    def test_memory_marked_enriched_after_call(self):
+        """The processed memory is added to the enrichment register."""
         self.register_tags(['data-science', 'statistics'])
         _insert_memory('r1', 'Statistical analysis of survey data using R.', ['data-science', 'statistics'])
         self.assertIn('r1', self.unenriched(limit=10))
 
-        asyncio.run(self.enrich(['r1']))
+        asyncio.run(self.enrich('r1'))
 
         self.assertNotIn('r1', self.unenriched(limit=10))
 
     def test_multiple_memories_all_marked_enriched(self):
-        """Each memory in the batch is individually recorded in the register."""
+        """Each memory enriched individually is recorded in the register."""
         self.register_tags(['project-management', 'agile'])
         ids = ['pm1', 'pm2', 'pm3']
         for i, mid in enumerate(ids):
             _insert_memory(mid, f'Agile sprint planning for project phase {i}.', ['project-management', 'agile'])
 
-        asyncio.run(self.enrich(ids))
+        for mid in ids:
+            asyncio.run(self.enrich(mid))
 
         remaining = self.unenriched(limit=10)
         for mid in ids:
@@ -146,7 +136,7 @@ class TestEnrichBatch(unittest.TestCase):
         self.register_tags(['workflow', 'productivity'])
         _insert_memory('integrity', 'Personal productivity workflow using GTD method.', ['workflow', 'productivity'])
 
-        asyncio.run(self.enrich(['integrity']))
+        asyncio.run(self.enrich('integrity'))
 
         mem = _get_memory('integrity')
         self.assertIsNotNone(mem)
@@ -155,22 +145,22 @@ class TestEnrichBatch(unittest.TestCase):
                         f'Non-string tag found: {mem["tags"]}')
 
     def test_importance_field_unchanged_after_enrichment(self):
-        """enrich_batch must not touch the importance field."""
+        """enrich_single must not touch the importance field."""
         self.register_tags(['security', 'authentication'])
         _insert_memory('sec', 'OAuth2 token-based authentication for REST APIs.', ['security', 'authentication'], importance=5)
 
-        asyncio.run(self.enrich(['sec']))
+        asyncio.run(self.enrich('sec'))
 
         mem = _get_memory('sec')
         self.assertEqual(mem['importance'], 5)
 
     def test_content_field_unchanged_after_enrichment(self):
-        """enrich_batch must not modify the memory content."""
+        """enrich_single must not modify the memory content."""
         original_content = 'Kubernetes cluster autoscaling based on CPU metrics.'
         self.register_tags(['kubernetes', 'devops'])
         _insert_memory('k8s', original_content, ['kubernetes', 'devops'])
 
-        asyncio.run(self.enrich(['k8s']))
+        asyncio.run(self.enrich('k8s'))
 
         mem = _get_memory('k8s')
         self.assertEqual(mem['content'], original_content)
@@ -192,7 +182,7 @@ class TestEnrichBatch(unittest.TestCase):
         self.register_tags(['nodejs', 'backend'])
         _insert_memory('node', 'Building REST services with Node.js and Express.', ['nodejs', 'backend'])
 
-        asyncio.run(self.enrich(['node']))
+        asyncio.run(self.enrich('node'))
 
         mem = _get_memory('node')
         tags_db = get_tags_tinydb()

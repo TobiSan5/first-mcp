@@ -13,6 +13,5 @@ Rules:
 - DROP: remove a tag that is misleading or fully superseded by a replacement.
 
 Be conservative. Leave all lists empty if no improvement is obvious.
-Each memory_id in your response must match exactly.
 
---- MEMORIES ---
+--- MEMORY ---
