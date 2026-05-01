@@ -79,7 +79,34 @@ Date-based sorting and category browsing for memory retrieval:
 - `CLAUDE.md` testing section expanded with concrete patterns for each tier.
 - Tests: 10 new `TestDateSortKey` unit tests in `data_processing/test_memory_retrieval.py`; 7 new server-implementation tests covering `last_modified` priority, tag filter preservation under date sort, cross-page sort order, and category+sort combined.
 
-### v1.5.0 🚧 In Progress
+### v1.5.1 🗓 Planned
+
+**Remove max-tag ceiling from enrichment agent:**
+- The `MAX_TAGS_PER_MEMORY` cap (and `FIRST_MCP_MAX_TAGS` env var) will be removed.
+  Rich tagging with proper nouns and narrow concepts is desirable for retrieval quality;
+  the scoring formula (`Σ sim²`) only rewards tags that match the query, so a memory
+  with many specific tags does not unfairly outscore memories with fewer tags.
+- `MIN_TAGS_PER_MEMORY` (floor of 2) and `FIRST_MCP_MIN_TAGS` are retained.
+- The prompt instruction capping additions at `MAX_TAGS_PER_MEMORY` is removed.
+  Guard against vague generic tags is handled by prompt instruction quality and the
+  category field (see below), not a numerical ceiling.
+
+**Category consolidation in enrichment agent:**
+- Enrich agent now also reviews and improves the memory's `category` field.
+- Before building the prompt, all distinct existing categories are fetched via
+  `tinydb_get_memory_categories()` and injected as a `EXISTING CATEGORIES` section.
+- `MemoryTagPatch` schema gains `suggested_category: Optional[str] = None`.
+- Prompt instruction: prefer an existing category (consolidation); only suggest a new
+  name when no existing category is a reasonable fit; leave unchanged if already correct.
+- Apply-patches: if `suggested_category` is set and differs from current category,
+  update the `category` field in the same DB write. No guardrail needed (categories
+  are coarser than tags).
+- Effect: broad concepts find a home in the category field rather than as tags, keeping
+  tags narrow and specific. Category taxonomy consolidates organically over time.
+- Update `src/first_mcp/prompts/tag_enrichment.md` with new instructions and
+  `{categories}` placeholder.
+
+### v1.5.0 ✅ Released (2026-05-01)
 Branch: `feature/v1.4.2-assistant`
 
 #### Shipped this branch (2026-04-30 → 2026-05-01)
@@ -124,7 +151,8 @@ Branch: `feature/v1.4.2-assistant`
 **Test isolation for server_implementation tier:**
 - All five `tests/server_implementation/` files now set `FIRST_MCP_DATA_PATH` to a temp dir and `FIRST_MCP_ENRICHMENT_DISABLED=1`.
 
-**Pending:**
+**Deferred to v1.5.1:**
+- Remove `MAX_TAGS_PER_MEMORY` ceiling; add category consolidation to enrichment agent
 - Expired memories ranked last rather than excluded
 
 ## Version 2.0 - Modular Architecture 🚧
