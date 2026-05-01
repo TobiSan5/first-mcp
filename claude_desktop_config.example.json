@@ -2,9 +2,15 @@
   "mcpServers": {
     "first-mcp": {
       "command": "mamba",
-      "args": ["run", "-n", "fast-mcp", "python", "<absolute path to server.py here>"],
+      "args": ["run", "-n", "fast-mcp", "python", "-m", "first_mcp.server"],
       "env": {
-        "PYTHONPATH": "<path to folder containing server.py here>",
+        "PYTHONPATH": "<absolute path to the repo>/src",
+        "GOOGLE_API_KEY": "<your Google AI API key>",
+        "FIRST_MCP_DATA_PATH": "<absolute path to your data directory>",
+        "FIRST_MCP_ENRICHMENT_MODEL": "gemini-2.5-flash",
+        "FIRST_MCP_ASSISTANT_MODEL": "gemini-2.5-flash",
+        "FIRST_MCP_MAX_TAGS": "4",
+        "FIRST_MCP_MIN_TAGS": "2"
       }
     }
   }
