@@ -24,9 +24,12 @@ Integration point (server_impl.py):
 import asyncio
 import contextlib
 import os
+import pathlib
 import sys
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+_PROMPTS_DIR = pathlib.Path(__file__).parent.parent / 'prompts'
 
 from pydantic import BaseModel
 from tinydb import Query
@@ -213,26 +216,9 @@ def _replacement_passes_guardrail(old_tag: str, new_tag: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def _build_prompt(memories: List[Dict[str, Any]], similar_map: Dict[str, List[Dict]]) -> str:
-    lines = [
-        "You are a memory tag quality agent. Review each memory and suggest minimal tag improvements.",
-        "",
-        f"Tag count target: {MIN_TAGS_PER_MEMORY}–{MAX_TAGS_PER_MEMORY} tags per memory.",
-        f"- If current_tags has fewer than {MIN_TAGS_PER_MEMORY}, add missing relevant tags.",
-        f"- If current_tags already has {MAX_TAGS_PER_MEMORY} or more, do not suggest any additions.",
-        "",
-        "Rules:",
-        "- REPLACE: swap a tag for a semantically equivalent canonical tag already in the registry.",
-        "  Never replace proper nouns, project names, or abbreviations with generic terms.",
-        "- ADD EXISTING: add a registry tag that is clearly relevant but missing.",
-        "- ADD NEW: add a short bridging/broader concept tag that does not yet exist.",
-        "  Only suggest this when the memory is clearly missing a useful general category.",
-        "- DROP: remove a tag that is misleading or fully superseded by a replacement.",
-        "",
-        "Be conservative. Leave all lists empty if no improvement is obvious.",
-        "Each memory_id in your response must match exactly.",
-        "",
-        "--- MEMORIES ---",
-    ]
+    template = (_PROMPTS_DIR / 'tag_enrichment.md').read_text(encoding='utf-8')
+    header = template.format(min_tags=MIN_TAGS_PER_MEMORY, max_tags=MAX_TAGS_PER_MEMORY)
+    lines = [header]
 
     for mem in memories:
         mid = mem.get('id', '')

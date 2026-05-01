@@ -6,15 +6,19 @@ Requires GOOGLE_API_KEY.
 """
 
 import os
+import pathlib
 from typing import Any, Dict
 
 try:
     import google.genai as genai
+    from google.genai import types as genai_types
     GENAI_AVAILABLE = True
 except ImportError:
     GENAI_AVAILABLE = False
 
 ASSISTANT_MODEL = os.getenv('FIRST_MCP_ASSISTANT_MODEL', 'gemini-2.5-flash')
+
+_PROMPTS_DIR = pathlib.Path(__file__).parent / 'prompts'
 
 
 def get_second_opinion(question: str, context: str = "") -> Dict[str, Any]:
@@ -32,13 +36,17 @@ def get_second_opinion(question: str, context: str = "") -> Dict[str, Any]:
     if not api_key:
         return {'success': False, 'error': 'GOOGLE_API_KEY not set'}
 
-    prompt = question if not context else f"{context}\n\n{question}"
+    system_prompt = (_PROMPTS_DIR / 'second_opinion.md').read_text(encoding='utf-8')
+    contents = question if not context else f"{context}\n\n{question}"
 
     try:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
             model=ASSISTANT_MODEL,
-            contents=prompt,
+            contents=contents,
+            config=genai_types.GenerateContentConfig(
+                system_instruction=system_prompt,
+            ),
         )
         return {
             'success': True,

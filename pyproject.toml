@@ -70,7 +70,7 @@ first-mcp-legacy = "first_mcp.server:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"first_mcp" = ["*.json", "*.md"]
+"first_mcp" = ["*.json", "*.md", "**/*.md", "**/*.json"]
 
 [tool.black]
 line-length = 100
