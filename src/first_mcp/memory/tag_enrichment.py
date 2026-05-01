@@ -42,7 +42,7 @@ except ImportError:
     GENAI_AVAILABLE = False
 
 from .database import get_memory_tinydb, get_tags_tinydb, get_enrichment_tinydb
-from .tag_tools import tinydb_find_similar_tags, increment_tag_usage, decrement_tag_usage
+from .tag_tools import increment_tag_usage, decrement_tag_usage
 from ..embeddings import cosine_similarity as _cosine_similarity, EMBEDDING_MODEL
 
 
@@ -274,12 +274,43 @@ async def enrich_batch(memory_ids: List[str]) -> Dict[str, Any]:
     if not memories:
         return {'success': True, 'processed': 0}
 
-    # Pre-fetch similar tags for every tag in this batch (synchronous; fast in-process)
+    # Build similar_map from the in-process tag registry — one TinyDB read,
+    # pure cosine math, no embedding API calls, no event-loop blocking.
+    tags_db = get_tags_tinydb()
+    all_tag_records = tags_db.table('tags').all()
+    tags_db.close()
+
+    tag_registry_full = {
+        r['tag']: {
+            'embedding': r.get('embedding', []),
+            'usage_count': r.get('usage_count', 0),
+            'last_used_at': r.get('last_used_at', ''),
+        }
+        for r in all_tag_records
+        if r.get('tag') and r.get('embedding')
+    }
+
     all_tags = {tag for m in memories for tag in m.get('tags', [])}
     similar_map: Dict[str, List[Dict]] = {}
     for tag in all_tags:
-        result = tinydb_find_similar_tags(tag, limit=6, min_similarity=0.55)
-        similar_map[tag] = result.get('similar_tags', []) if result.get('success') else []
+        tag_emb = tag_registry_full.get(tag, {}).get('embedding', [])
+        if not tag_emb:
+            similar_map[tag] = []
+            continue
+        candidates = []
+        for other_tag, other_data in tag_registry_full.items():
+            if other_tag == tag:
+                continue
+            sim = _cosine_similarity(tag_emb, other_data['embedding'])
+            if sim >= 0.55:
+                candidates.append({
+                    'tag': other_tag,
+                    'similarity': round(sim, 4),
+                    'usage_count': other_data['usage_count'],
+                    'last_used': other_data['last_used_at'],
+                })
+        candidates.sort(key=lambda x: (x['similarity'], x['usage_count']), reverse=True)
+        similar_map[tag] = candidates[:6]
 
     prompt = _build_prompt(memories, similar_map)
 
