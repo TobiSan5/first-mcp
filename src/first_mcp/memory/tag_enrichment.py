@@ -35,13 +35,6 @@ _PROMPTS_DIR = pathlib.Path(__file__).parent.parent / 'prompts'
 from pydantic import BaseModel
 from tinydb import Query
 
-try:
-    import google.genai as genai
-    from google.genai import types as genai_types
-    GENAI_AVAILABLE = True
-except ImportError:
-    GENAI_AVAILABLE = False
-
 from .database import get_memory_tinydb, get_tags_tinydb, get_enrichment_tinydb
 from .tag_tools import increment_tag_usage, decrement_tag_usage
 from ..embeddings import cosine_similarity as _cosine_similarity, EMBEDDING_MODEL
@@ -51,6 +44,19 @@ ENRICHMENT_LLM_MODEL = os.getenv('FIRST_MCP_ENRICHMENT_MODEL', 'gemini-2.5-flash
 MAX_TAGS_PER_MEMORY = int(os.getenv('FIRST_MCP_MAX_TAGS', '4'))
 MIN_TAGS_PER_MEMORY = int(os.getenv('FIRST_MCP_MIN_TAGS', '2'))
 REPLACEMENT_SIMILARITY_THRESHOLD = 0.85
+
+
+def _log(msg: str) -> None:
+    entry = f"{datetime.now().isoformat()} {msg}\n"
+    data_path = os.getenv('FIRST_MCP_DATA_PATH', '')
+    if data_path:
+        try:
+            log_path = pathlib.Path(data_path) / 'enrichment.log'
+            with open(log_path, 'a', encoding='utf-8') as f:
+                f.write(entry)
+        except OSError:
+            pass
+    print(msg, file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +250,10 @@ async def enrich_single(memory_id: str) -> Dict[str, Any]:
 
     Returns a summary dict with counts of actions taken.
     """
-    if not GENAI_AVAILABLE:
+    try:
+        import google.genai as genai
+        from google.genai import types as genai_types
+    except ImportError:
         return {'success': False, 'error': 'google-genai not installed'}
 
     api_key = os.getenv('GOOGLE_API_KEY')
@@ -399,7 +408,7 @@ async def tag_enrichment_loop(
     Short sleep (~60 s) after a cycle that found work; long sleep (~20 min) when
     all memories are covered. Start this as an asyncio.Task from the FastMCP lifespan.
     """
-    print("Tag enrichment agent started.", file=sys.stderr)
+    _log("Tag enrichment agent started.")
 
     sleep_next = interval_short  # first sleep acts as startup grace period
     while True:
@@ -408,22 +417,19 @@ async def tag_enrichment_loop(
             candidates = get_unenriched_memory_ids(limit=50)
 
             if candidates:
-                print(
-                    f"[tag_enrichment] {len(candidates)} memories to enrich.",
-                    file=sys.stderr,
-                )
+                _log(f"[tag_enrichment] {len(candidates)} memories to enrich.")
                 for memory_id in candidates:
                     result = await enrich_single(memory_id)
-                    print(f"[tag_enrichment] {memory_id[:8]}: {result}", file=sys.stderr)
+                    _log(f"[tag_enrichment] {memory_id[:8]}: {result}")
                     await asyncio.sleep(1)  # yield between API calls
                 sleep_next = interval_short
             else:
                 sleep_next = interval_long
 
         except asyncio.CancelledError:
-            print("Tag enrichment agent stopped.", file=sys.stderr)
+            _log("Tag enrichment agent stopped.")
             raise
         except Exception as exc:
-            print(f"[tag_enrichment] Error: {exc}", file=sys.stderr)
+            _log(f"[tag_enrichment] Error: {exc}")
             traceback.print_exc(file=sys.stderr)
             sleep_next = interval_short

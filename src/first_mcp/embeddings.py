@@ -6,15 +6,12 @@ for semantic similarity scoring. These are general-purpose utilities not tied
 to the memory/tag system.
 """
 
+from importlib.util import find_spec as _find_spec
 from typing import Optional, List, Dict, Any
 import os
 
-# Try to import Google AI for embeddings
-try:
-    import google.genai as genai
-    GENAI_AVAILABLE = True
-except ImportError:
-    GENAI_AVAILABLE = False
+# Check availability without importing (avoids 3+ second startup cost)
+GENAI_AVAILABLE: bool = _find_spec('google.genai') is not None
 
 EMBEDDING_MODEL = "gemini-embedding-001"
 EMBEDDING_DIMENSIONS = 3072
@@ -30,14 +27,12 @@ def generate_embedding(text: str) -> Optional[List[float]]:
     Returns:
         768-dimensional embedding vector, or None if API unavailable
     """
-    if not GENAI_AVAILABLE:
-        return None
-
     api_key = os.getenv('GOOGLE_API_KEY')
     if not api_key:
         return None
 
     try:
+        import google.genai as genai
         client = genai.Client(api_key=api_key)
         response = client.models.embed_content(
             model=EMBEDDING_MODEL,
@@ -63,9 +58,6 @@ def generate_embeddings_batch(texts: List[str], batch_size: int = 20) -> List[Op
         List of embedding vectors (same length as input). Entries are None
         for any text whose embedding could not be generated.
     """
-    if not GENAI_AVAILABLE:
-        return [None] * len(texts)
-
     api_key = os.getenv('GOOGLE_API_KEY')
     if not api_key:
         return [None] * len(texts)
@@ -73,6 +65,7 @@ def generate_embeddings_batch(texts: List[str], batch_size: int = 20) -> List[Op
     results: List[Optional[List[float]]] = [None] * len(texts)
 
     try:
+        import google.genai as genai
         client = genai.Client(api_key=api_key)
 
         for batch_start in range(0, len(texts), batch_size):
@@ -193,7 +186,11 @@ def compute_text_similarity(
     Returns:
         Dictionary with similarity score and metadata
     """
-    api_available = GENAI_AVAILABLE and bool(os.getenv('GOOGLE_API_KEY'))
+    try:
+        import google.genai  # noqa: F401
+        api_available = bool(os.getenv('GOOGLE_API_KEY'))
+    except ImportError:
+        api_available = False
 
     if not api_available:
         return {
@@ -263,7 +260,11 @@ def rank_texts_by_similarity(query: str, candidates: List[str]) -> Dict[str, Any
     Returns:
         Dictionary with candidates ranked by descending similarity score
     """
-    api_available = GENAI_AVAILABLE and bool(os.getenv('GOOGLE_API_KEY'))
+    try:
+        import google.genai  # noqa: F401
+        api_available = bool(os.getenv('GOOGLE_API_KEY'))
+    except ImportError:
+        api_available = False
 
     if not api_available:
         return {

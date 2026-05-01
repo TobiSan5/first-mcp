@@ -12,7 +12,6 @@ Terms of Service Requirements:
 - Cache responses and respect Expires headers
 """
 
-import requests
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import json
@@ -35,6 +34,7 @@ class WeatherAPI:
         Args:
             user_agent: User-Agent string with app name and contact info
         """
+        import requests
         self.user_agent = user_agent
         self.session = requests.Session()
         self.session.headers.update({
@@ -88,7 +88,7 @@ class WeatherAPI:
             
             return response.json()
             
-        except requests.RequestException as e:
+        except Exception as e:
             raise Exception(f"Weather API request failed: {e}")
     
     def get_current_weather(self, lat: float, lon: float) -> Dict[str, Any]:
@@ -154,10 +154,11 @@ class GeocodingAPI:
         Args:
             api_key: OpenWeatherMap API key (or uses env var)
         """
+        import requests
         self.api_key = api_key or os.getenv('OPENWEATHERMAPORG_API_KEY')
         if not self.api_key:
             raise ValueError("OpenWeatherMap API key required. Set OPENWEATHERMAPORG_API_KEY environment variable.")
-        
+
         self.session = requests.Session()
     
     def geocode(self, location: str, limit: int = 5) -> List[Dict[str, Any]]:
@@ -187,7 +188,7 @@ class GeocodingAPI:
             
             return response.json()
             
-        except requests.RequestException as e:
+        except Exception as e:
             raise Exception(f"Geocoding API request failed: {e}")
     
     def get_coordinates(self, location: str) -> Optional[tuple[float, float]]:

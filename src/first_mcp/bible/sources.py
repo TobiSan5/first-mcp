@@ -1,5 +1,4 @@
 import os
-import requests
 import zipfile
 from pathlib import Path
 from typing import List, Dict
@@ -33,6 +32,7 @@ class ESVBibleDownloader:
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         try:
+            import requests
             print(f"Downloading ESV Bible from {self.zip_url}...")
             response = requests.get(self.zip_url, timeout=60)
             response.raise_for_status()

@@ -9,13 +9,6 @@ import os
 import pathlib
 from typing import Any, Dict
 
-try:
-    import google.genai as genai
-    from google.genai import types as genai_types
-    GENAI_AVAILABLE = True
-except ImportError:
-    GENAI_AVAILABLE = False
-
 ASSISTANT_MODEL = os.getenv('FIRST_MCP_ASSISTANT_MODEL', 'gemini-2.5-flash')
 
 _PROMPTS_DIR = pathlib.Path(__file__).parent / 'prompts'
@@ -29,7 +22,10 @@ def get_second_opinion(question: str, context: str = "") -> Dict[str, Any]:
         question: The question to ask.
         context:  Optional background context to include with the question.
     """
-    if not GENAI_AVAILABLE:
+    try:
+        import google.genai as genai
+        from google.genai import types as genai_types
+    except ImportError:
         return {'success': False, 'error': 'google-genai not installed'}
 
     api_key = os.getenv('GOOGLE_API_KEY')
