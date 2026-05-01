@@ -41,7 +41,6 @@ from ..embeddings import cosine_similarity as _cosine_similarity, EMBEDDING_MODE
 
 
 ENRICHMENT_LLM_MODEL = os.getenv('FIRST_MCP_ENRICHMENT_MODEL', 'gemini-2.5-flash')
-MAX_TAGS_PER_MEMORY = int(os.getenv('FIRST_MCP_MAX_TAGS', '4'))
 MIN_TAGS_PER_MEMORY = int(os.getenv('FIRST_MCP_MIN_TAGS', '2'))
 REPLACEMENT_SIMILARITY_THRESHOLD = 0.85
 
@@ -201,7 +200,7 @@ def _replacement_passes_guardrail(old_tag: str, new_tag: str) -> bool:
 
 def _build_prompt(mem: Dict[str, Any], similar_map: Dict[str, List[Dict]]) -> str:
     template = (_PROMPTS_DIR / 'tag_enrichment.md').read_text(encoding='utf-8')
-    header = template.format(min_tags=MIN_TAGS_PER_MEMORY, max_tags=MAX_TAGS_PER_MEMORY)
+    header = template.format(min_tags=MIN_TAGS_PER_MEMORY)
     lines = [header]
 
     preview = (mem.get('content') or '')[:250].replace('\n', ' ')
@@ -336,7 +335,7 @@ def enrich_single(memory_id: str) -> Dict[str, Any]:
                 replaced += 1
         decrement_tag_usage(replaced_out)
 
-        # 2. Drops — applied before adds so freed slots can be filled
+        # 2. Drops — applied before adds
         dropped_tags: List[str] = []
         for tag in patch.drop:
             if tag in tags and len(tags) - len(dropped_tags) > MIN_TAGS_PER_MEMORY:
@@ -346,25 +345,21 @@ def enrich_single(memory_id: str) -> Dict[str, Any]:
             tags.remove(tag)
         decrement_tag_usage(dropped_tags)
 
-        # 3. Adds — capped so total never exceeds MAX_TAGS_PER_MEMORY
-        slots = max(0, MAX_TAGS_PER_MEMORY - len(tags))
-
-        to_add_existing = [t for t in patch.add_existing if t not in tags][:slots]
+        # 3. Adds
+        to_add_existing = [t for t in patch.add_existing if t not in tags]
         if to_add_existing:
             increment_tag_usage(to_add_existing)
             tags.extend(to_add_existing)
             tags_added.extend(to_add_existing)
             added += len(to_add_existing)
-            slots -= len(to_add_existing)
 
-        if patch.add_new and slots > 0:
+        if patch.add_new:
             _register_new_tags_sync(client, patch.add_new)
             for tag in patch.add_new:
-                if tag not in tags and slots > 0:
+                if tag not in tags:
                     tags.append(tag)
                     tags_added.append(tag)
                     added += 1
-                    slots -= 1
 
         # Write back only if something changed
         if tags != original_tags:
