@@ -250,9 +250,11 @@ async def enrich_single(memory_id: str) -> Dict[str, Any]:
 
     Returns a summary dict with counts of actions taken.
     """
+    import importlib
     try:
-        import google.genai as genai
-        from google.genai import types as genai_types
+        # Run in a thread — first import takes 3+ seconds and would block the event loop
+        genai = await asyncio.to_thread(importlib.import_module, 'google.genai')
+        genai_types = await asyncio.to_thread(importlib.import_module, 'google.genai.types')
     except ImportError:
         return {'success': False, 'error': 'google-genai not installed'}
 

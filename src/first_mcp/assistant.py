@@ -22,9 +22,10 @@ def get_second_opinion(question: str, context: str = "") -> Dict[str, Any]:
         question: The question to ask.
         context:  Optional background context to include with the question.
     """
+    import importlib
     try:
-        import google.genai as genai
-        from google.genai import types as genai_types
+        genai = importlib.import_module('google.genai')
+        genai_types = importlib.import_module('google.genai.types')
     except ImportError:
         return {'success': False, 'error': 'google-genai not installed'}
 
