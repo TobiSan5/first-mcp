@@ -10,7 +10,6 @@ Tags are registered with real embeddings so the full enrichment pipeline runs
 (prompt building → Gemini call → structured-output patch → guardrail → TinyDB write).
 """
 
-import asyncio
 import os
 import sys
 import tempfile
@@ -82,7 +81,7 @@ class TestEnrichSingle(unittest.TestCase):
         self.register_tags(['python', 'web-development'])
         _insert_memory('m1', 'Building web APIs with Python and FastAPI.', ['python', 'web-development'])
 
-        result = asyncio.run(self.enrich('m1'))
+        result = \1
 
         self.assertIsInstance(result, dict)
         self.assertTrue(result.get('success'), f'Expected success=True, got: {result}')
@@ -94,7 +93,7 @@ class TestEnrichSingle(unittest.TestCase):
 
     def test_nonexistent_id_returns_error(self):
         """A memory ID not in the DB returns success=False with an error key."""
-        result = asyncio.run(self.enrich('does-not-exist'))
+        result = \1
 
         self.assertFalse(result.get('success'))
         self.assertIn('error', result)
@@ -109,7 +108,7 @@ class TestEnrichSingle(unittest.TestCase):
         _insert_memory('r1', 'Statistical analysis of survey data using R.', ['data-science', 'statistics'])
         self.assertIn('r1', self.unenriched(limit=10))
 
-        asyncio.run(self.enrich('r1'))
+        \1
 
         self.assertNotIn('r1', self.unenriched(limit=10))
 
@@ -121,7 +120,7 @@ class TestEnrichSingle(unittest.TestCase):
             _insert_memory(mid, f'Agile sprint planning for project phase {i}.', ['project-management', 'agile'])
 
         for mid in ids:
-            asyncio.run(self.enrich(mid))
+            \1
 
         remaining = self.unenriched(limit=10)
         for mid in ids:
@@ -136,7 +135,7 @@ class TestEnrichSingle(unittest.TestCase):
         self.register_tags(['workflow', 'productivity'])
         _insert_memory('integrity', 'Personal productivity workflow using GTD method.', ['workflow', 'productivity'])
 
-        asyncio.run(self.enrich('integrity'))
+        \1
 
         mem = _get_memory('integrity')
         self.assertIsNotNone(mem)
@@ -149,7 +148,7 @@ class TestEnrichSingle(unittest.TestCase):
         self.register_tags(['security', 'authentication'])
         _insert_memory('sec', 'OAuth2 token-based authentication for REST APIs.', ['security', 'authentication'], importance=5)
 
-        asyncio.run(self.enrich('sec'))
+        \1
 
         mem = _get_memory('sec')
         self.assertEqual(mem['importance'], 5)
@@ -160,7 +159,7 @@ class TestEnrichSingle(unittest.TestCase):
         self.register_tags(['kubernetes', 'devops'])
         _insert_memory('k8s', original_content, ['kubernetes', 'devops'])
 
-        asyncio.run(self.enrich('k8s'))
+        \1
 
         mem = _get_memory('k8s')
         self.assertEqual(mem['content'], original_content)
@@ -182,7 +181,7 @@ class TestEnrichSingle(unittest.TestCase):
         self.register_tags(['nodejs', 'backend'])
         _insert_memory('node', 'Building REST services with Node.js and Express.', ['nodejs', 'backend'])
 
-        asyncio.run(self.enrich('node'))
+        \1
 
         mem = _get_memory('node')
         tags_db = get_tags_tinydb()
