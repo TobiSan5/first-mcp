@@ -250,11 +250,14 @@ async def enrich_single(memory_id: str) -> Dict[str, Any]:
 
     Returns a summary dict with counts of actions taken.
     """
+    _log(f"[enrich_single] start {memory_id[:8]}")
     import importlib
     try:
         # Run in a thread — first import takes 3+ seconds and would block the event loop
+        _log("[enrich_single] importing google.genai...")
         genai = await asyncio.to_thread(importlib.import_module, 'google.genai')
         genai_types = await asyncio.to_thread(importlib.import_module, 'google.genai.types')
+        _log("[enrich_single] import done")
     except ImportError:
         return {'success': False, 'error': 'google-genai not installed'}
 
@@ -263,6 +266,7 @@ async def enrich_single(memory_id: str) -> Dict[str, Any]:
         return {'success': False, 'error': 'GOOGLE_API_KEY not set'}
 
     # Load memory
+    _log("[enrich_single] loading memory from TinyDB")
     memory_db = get_memory_tinydb()
     memories_table = memory_db.table('memories')
     Record = Query()
@@ -276,6 +280,7 @@ async def enrich_single(memory_id: str) -> Dict[str, Any]:
 
     # Build similar_map from the in-process tag registry — one TinyDB read,
     # pure cosine math, no embedding API calls, no event-loop blocking.
+    _log("[enrich_single] loading tag registry")
     tags_db = get_tags_tinydb()
     all_tag_records = tags_db.table('tags').all()
     tags_db.close()
@@ -311,6 +316,7 @@ async def enrich_single(memory_id: str) -> Dict[str, Any]:
 
     prompt = _build_prompt(mem, similar_map)
 
+    _log("[enrich_single] calling Gemini API")
     client = genai.Client(api_key=api_key)
     response = await client.aio.models.generate_content(
         model=ENRICHMENT_LLM_MODEL,
