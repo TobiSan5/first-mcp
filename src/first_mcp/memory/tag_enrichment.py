@@ -335,69 +335,70 @@ async def enrich_batch(memory_ids: List[str]) -> Dict[str, Any]:
     memory_db = get_memory_tinydb()
     memories_table = memory_db.table('memories')
 
-    for patch in batch_result.patches:
-        mid = patch.memory_id
-        rows = memories_table.search(Record.id == mid)
-        if not rows:
-            continue
+    try:
+        for patch in batch_result.patches:
+            mid = patch.memory_id
+            rows = memories_table.search(Record.id == mid)
+            if not rows:
+                continue
 
-        mem = rows[0]
-        tags: List[str] = list(mem.get('tags', []))
-        original_tags = list(tags)
-        tags_added: List[str] = []
+            mem = rows[0]
+            tags: List[str] = list(mem.get('tags', []))
+            original_tags = list(tags)
+            tags_added: List[str] = []
 
-        # 1. Replacements — hard guardrail enforced independently of LLM judgment
-        replaced_out: List[str] = []
-        for repl in patch.replacements:
-            if repl.old_tag in tags and _replacement_passes_guardrail(repl.old_tag, repl.new_tag):
-                tags.remove(repl.old_tag)
-                replaced_out.append(repl.old_tag)
-                if repl.new_tag not in tags:
-                    tags.append(repl.new_tag)
-                    increment_tag_usage([repl.new_tag])
-                total_replaced += 1
-        decrement_tag_usage(replaced_out)
+            # 1. Replacements — hard guardrail enforced independently of LLM judgment
+            replaced_out: List[str] = []
+            for repl in patch.replacements:
+                if repl.old_tag in tags and _replacement_passes_guardrail(repl.old_tag, repl.new_tag):
+                    tags.remove(repl.old_tag)
+                    replaced_out.append(repl.old_tag)
+                    if repl.new_tag not in tags:
+                        tags.append(repl.new_tag)
+                        increment_tag_usage([repl.new_tag])
+                    total_replaced += 1
+            decrement_tag_usage(replaced_out)
 
-        # 2. Drops — applied before adds so freed slots can be filled
-        dropped: List[str] = []
-        for tag in patch.drop:
-            if tag in tags and len(tags) - len(dropped) > MIN_TAGS_PER_MEMORY:
-                dropped.append(tag)
-                total_dropped += 1
-        for tag in dropped:
-            tags.remove(tag)
-        decrement_tag_usage(dropped)
+            # 2. Drops — applied before adds so freed slots can be filled
+            dropped: List[str] = []
+            for tag in patch.drop:
+                if tag in tags and len(tags) - len(dropped) > MIN_TAGS_PER_MEMORY:
+                    dropped.append(tag)
+                    total_dropped += 1
+            for tag in dropped:
+                tags.remove(tag)
+            decrement_tag_usage(dropped)
 
-        # 3. Adds — capped so total never exceeds MAX_TAGS_PER_MEMORY
-        slots = max(0, MAX_TAGS_PER_MEMORY - len(tags))
+            # 3. Adds — capped so total never exceeds MAX_TAGS_PER_MEMORY
+            slots = max(0, MAX_TAGS_PER_MEMORY - len(tags))
 
-        to_add_existing = [t for t in patch.add_existing if t not in tags][:slots]
-        if to_add_existing:
-            increment_tag_usage(to_add_existing)
-            tags.extend(to_add_existing)
-            tags_added.extend(to_add_existing)
-            total_added += len(to_add_existing)
-            slots -= len(to_add_existing)
+            to_add_existing = [t for t in patch.add_existing if t not in tags][:slots]
+            if to_add_existing:
+                increment_tag_usage(to_add_existing)
+                tags.extend(to_add_existing)
+                tags_added.extend(to_add_existing)
+                total_added += len(to_add_existing)
+                slots -= len(to_add_existing)
 
-        if patch.add_new and slots > 0:
-            await _register_new_tags_async(client, patch.add_new)
-            for tag in patch.add_new:
-                if tag not in tags and slots > 0:
-                    tags.append(tag)
-                    tags_added.append(tag)
-                    total_added += 1
-                    slots -= 1
+            if patch.add_new and slots > 0:
+                await _register_new_tags_async(client, patch.add_new)
+                for tag in patch.add_new:
+                    if tag not in tags and slots > 0:
+                        tags.append(tag)
+                        tags_added.append(tag)
+                        total_added += 1
+                        slots -= 1
 
-        # Write back only if something changed
-        if tags != original_tags:
-            memories_table.update(
-                {'tags': tags, 'last_modified': datetime.now().isoformat()},
-                Record.id == mid,
-            )
+            # Write back only if something changed
+            if tags != original_tags:
+                memories_table.update(
+                    {'tags': tags, 'last_modified': datetime.now().isoformat()},
+                    Record.id == mid,
+                )
 
-        mark_enriched(mid, tags_added)
-
-    memory_db.close()
+            mark_enriched(mid, tags_added)
+    finally:
+        memory_db.close()
 
     return {
         'success': True,
@@ -423,6 +424,9 @@ async def tag_enrichment_loop(
     Short sleep (~60 s) while unenriched memories exist; long sleep (~20 min) when
     all are covered. Start this as an asyncio.Task from the FastMCP lifespan.
     """
+    # Yield immediately so the MCP handshake (initialize + list_tools) completes
+    # before this task does any work.
+    await asyncio.sleep(0)
     print("Tag enrichment agent started.", file=sys.stderr)
 
     while True:
