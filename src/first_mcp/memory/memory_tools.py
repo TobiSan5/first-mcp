@@ -8,8 +8,10 @@ from typing import Dict, Any, List
 from tinydb import Query
 
 from .database import get_memory_tinydb, get_categories_tinydb
-from .tag_tools import tinydb_register_tags
+from .tag_tools import tinydb_register_tags, decrement_tag_usage
 from .semantic_search import find_similar_tags_internal, check_category_exists
+from .tag_scoring import build_tag_registry, score_memories_by_tags
+from .pagination import save_paginated_results
 
 
 def tinydb_update_category_usage(category: str) -> None:
@@ -203,38 +205,27 @@ def tinydb_recall_memory(memory_id: str) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-def tinydb_search_memories(query: str = "", tags: str = "", category: str = "", 
-                          limit: int = 10, semantic_search: bool = True) -> Dict[str, Any]:
+def tinydb_search_memories(tags: str = "", content_keywords: str = "", category: str = "",
+                          limit: int = 50, semantic_search: bool = True,
+                          page_size: int = 5, sort_by: str = "relevance") -> Dict[str, Any]:
     """
-    Search memorized information using TinyDB with advanced filtering and semantic tag awareness.
-    
-    SEMANTIC ENHANCEMENT: When semantic_search=True (default), this tool automatically:
-    - Finds similar existing tags if provided tags don't match exactly
-    - Returns helpful error with available categories if invalid category provided
-    - This makes tag-based search much more effective with approximate terms
-    
+    Search memories by tag similarity — the primary retrieval tool.
+
     Args:
-        query: Text to search for in memory content
-        tags: Comma-separated tags to filter by (semantic expansion when enabled)
-        category: Category to filter by (exact match required - error shows available categories)
-        limit: Maximum number of results (default: 10)
-        semantic_search: Enable semantic tag expansion (default: True)
-        
-    Returns:
-        Dictionary with search results sorted by importance, or error with available categories if invalid category
+        tags: Comma-separated tags — primary search signal.
+        content_keywords: Optional substring filter on memory content (not semantic).
+        category: Optional exact-match category filter.
+        sort_by: "relevance" (default), "date_desc", or "date_asc".
+        page_size: Results in first response (default 5).
+        limit: Hard cap on total memories considered (default 50).
+        semantic_search: False uses exact tag matching only (default True).
     """
     try:
         memory_db = get_memory_tinydb()
         try:
             memories_table = memory_db.table('memories')
-            Record = Query()
-            
-            # Semantic search expansion (tags only) and category validation
-            original_tags = tags
-            original_category = category
-            expanded_tags = []
-            
-            # Validate category exists if provided
+
+            # Validate category if provided
             if category:
                 category_exists, category_error, existing_categories = check_category_exists(category)
                 if not category_exists:
@@ -242,173 +233,208 @@ def tinydb_search_memories(query: str = "", tags: str = "", category: str = "",
                     return {
                         "success": False,
                         "error": category_error,
-                        "available_categories": existing_categories
+                        "available_categories": existing_categories,
                     }
-            
-            # Semantic tag expansion (if enabled)
-            if semantic_search and tags:
-                input_tags = [tag.strip() for tag in tags.split(',') if tag.strip()]
-                all_expanded = set(input_tags)  # Start with original tags
-                
-                for tag in input_tags:
-                    similar_tags = find_similar_tags_internal(tag, limit=3, min_similarity=0.4)
-                    all_expanded.update(similar_tags)
-                
-                expanded_tags = list(all_expanded)
-            
-            # Start with all memories
-            results = memories_table.all()
-            
-            # Filter out expired memories
+
+            # Load and filter expired memories
             current_time = datetime.now()
-            active_results = []
-            for memory in results:
+            all_memories = []
+            for memory in memories_table.all():
                 if memory.get('expires_at'):
                     try:
                         expiry = datetime.fromisoformat(memory['expires_at'].replace('Z', '+00:00'))
-                        if current_time <= expiry:
-                            active_results.append(memory)
-                    except:
-                        active_results.append(memory)  # Keep if date parsing fails
-                else:
-                    active_results.append(memory)
-            
-            # Apply filters
-            filtered_results = active_results
-            
-            # Content query filter
-            if query:
-                query_words = [word.lower().strip() for word in query.split() if word.strip()]
-                filtered_results = [
-                    memory for memory in filtered_results
-                    if all(word in memory['content'].lower() for word in query_words)
-                ]
-            
-            # Tags filter (with semantic expansion)
-            if tags:
-                if semantic_search and expanded_tags:
-                    # Use expanded tags for better matching
-                    filter_tags = [tag.lower() for tag in expanded_tags]
-                else:
-                    # Use original tags
-                    filter_tags = [tag.strip().lower() for tag in tags.split(',') if tag.strip()]
-                    
-                filtered_results = [
-                    memory for memory in filtered_results
-                    if any(filter_tag in memory.get('tags', []) for filter_tag in filter_tags)
-                ]
-            
-            # Category filter (exact matching only - category validated above)
-            if category:
-                filtered_results = [
-                    memory for memory in filtered_results
-                    if (memory.get('category') or '').lower() == category.strip().lower()
-                ]
-            
-            # Sort by importance (descending), then by creation time (most recent first)
-            filtered_results.sort(
-                key=lambda x: (x.get('importance', 3), x.get('created_at', x.get('timestamp', ''))), 
-                reverse=True
-            )
-            
-            # Apply limit
-            final_results = filtered_results[:limit]
-            
-            # Close database before returning
+                        if current_time > expiry:
+                            continue
+                    except Exception:
+                        pass
+                all_memories.append(memory)
+
             memory_db.close()
-            
-            # Prepare semantic expansion info (tags only)
-            semantic_info = {}
-            if semantic_search:
-                semantic_info = {
-                    "enabled": True,
-                    "tag_expansion": {
-                        "original_tags": original_tags,
-                        "expanded_tags": expanded_tags if expanded_tags else None,
-                        "expansion_occurred": bool(expanded_tags and set(expanded_tags) != set(original_tags.split(',') if original_tags else []))
-                    },
-                    "category_validation": "Categories use exact matching - invalid categories return helpful error with available options"
-                }
+
+            # Content keyword filter
+            if content_keywords:
+                query_words = [w.lower().strip() for w in content_keywords.split() if w.strip()]
+                all_memories = [
+                    m for m in all_memories
+                    if all(w in m['content'].lower() for w in query_words)
+                ]
+
+            # Category filter
+            if category:
+                all_memories = [
+                    m for m in all_memories
+                    if (m.get('category') or '').lower() == category.strip().lower()
+                ]
+
+            # Tag-based scoring (primary) or legacy expansion (fallback)
+            scored_method = "none"
+            if tags:
+                input_tags = [t.strip().lower() for t in tags.split(',') if t.strip()]
+
+                if semantic_search:
+                    tag_registry = build_tag_registry()
+                    if tag_registry:
+                        scored = score_memories_by_tags(input_tags, all_memories, tag_registry)
+                        filtered_results = [mem for (_, mem, _) in scored][:limit]
+                        scored_method = "tag_scoring"
+                    else:
+                        expanded = set(input_tags)
+                        for t in input_tags:
+                            expanded.update(find_similar_tags_internal(t, limit=3, min_similarity=0.4))
+                        filter_tags = [t.lower() for t in expanded]
+                        filtered_results = [
+                            m for m in all_memories
+                            if any(ft in m.get('tags', []) for ft in filter_tags)
+                        ][:limit]
+                        scored_method = "string_expansion"
+                else:
+                    filter_tags = input_tags
+                    filtered_results = [
+                        m for m in all_memories
+                        if any(ft in m.get('tags', []) for ft in filter_tags)
+                    ][:limit]
+                    scored_method = "exact"
             else:
-                semantic_info = {"enabled": False}
-            
+                all_memories.sort(
+                    key=lambda x: (x.get('importance', 3), x.get('last_modified') or x.get('timestamp') or ''),
+                    reverse=True,
+                )
+                filtered_results = all_memories[:limit]
+                scored_method = "importance"
+
+            # Date sort override
+            if sort_by in ("date_desc", "date_asc"):
+                filtered_results.sort(
+                    key=lambda m: m.get('last_modified') or m.get('timestamp') or '',
+                    reverse=(sort_by == "date_desc"),
+                )
+                scored_method = "tag_filter_date_sorted" if tags else "date_sorted"
+
+            total_found = len(filtered_results)
+            first_page = filtered_results[:page_size]
+            has_more = total_found > page_size
+
+            next_page_token = None
+            if has_more:
+                next_page_token = save_paginated_results(
+                    all_results=filtered_results,
+                    page_size=page_size,
+                    query_info={
+                        "content_keywords": content_keywords, "tags": tags, "category": category,
+                        "limit": limit, "semantic_search": semantic_search,
+                        "page_size": page_size, "sort_by": sort_by,
+                    },
+                )
+
             return {
                 "success": True,
-                "memories": final_results,
-                "total_found": len(filtered_results),
-                "returned_count": len(final_results),
+                "memories": first_page,
+                "total_found": total_found,
+                "returned_count": len(first_page),
+                "has_more": has_more,
+                "next_page_token": next_page_token,
+                "scoring_method": scored_method,
                 "search_criteria": {
-                    "query": query,
+                    "content_keywords": content_keywords,
                     "tags": tags,
                     "category": category,
                     "limit": limit,
-                    "semantic_search": semantic_search
+                    "page_size": page_size,
+                    "semantic_search": semantic_search,
+                    "sort_by": sort_by,
                 },
-                "semantic_expansion": semantic_info
             }
+
         except Exception as e:
             memory_db.close()
             raise e
-        
+
     except Exception as e:
         return {"error": str(e)}
 
 
-def tinydb_list_memories(limit: int = 20) -> Dict[str, Any]:
+def tinydb_list_memories(limit: int = 100, page_size: int = 10,
+                        category: str = "", sort_by: str = "relevance") -> Dict[str, Any]:
     """
-    List all memorized information using TinyDB (most important first).
-    
+    Browse memories by category — use for inventory, not topic search.
+
     Args:
-        limit: Maximum number of memories to return (default: 20)
-        
-    Returns:
-        Dictionary with list of all memories
+        category: Optional exact-match category filter.
+        sort_by: "relevance" (default, highest importance first), "date_desc", or "date_asc".
+        page_size: Results in first response (default 10).
+        limit: Hard cap on total memories considered (default 100).
     """
     try:
         memory_db = get_memory_tinydb()
         try:
             memories_table = memory_db.table('memories')
-            
-            # Get all memories
             all_memories = memories_table.all()
-            
-            # Filter out expired memories
+
             current_time = datetime.now()
             active_memories = []
             for memory in all_memories:
                 if memory.get('expires_at'):
                     try:
                         expiry = datetime.fromisoformat(memory['expires_at'].replace('Z', '+00:00'))
-                        if current_time <= expiry:
-                            active_memories.append(memory)
-                    except:
-                        active_memories.append(memory)  # Keep if date parsing fails
-                else:
-                    active_memories.append(memory)
-            
-            # Sort by importance (descending), then by creation time (most recent first)
-            active_memories.sort(
-                key=lambda x: (x.get('importance', 3), x.get('created_at', x.get('timestamp', ''))), 
-                reverse=True
-            )
-            
-            # Apply limit
-            limited_memories = active_memories[:limit]
-            
-            # Close database
+                        if current_time > expiry:
+                            continue
+                    except Exception:
+                        pass
+                active_memories.append(memory)
+
             memory_db.close()
-            
+
+            # Category filter
+            if category:
+                active_memories = [
+                    m for m in active_memories
+                    if (m.get('category') or '').lower() == category.strip().lower()
+                ]
+
+            if sort_by in ("date_desc", "date_asc"):
+                active_memories.sort(
+                    key=lambda m: m.get('last_modified') or m.get('timestamp') or '',
+                    reverse=(sort_by == "date_desc"),
+                )
+            else:
+                active_memories.sort(
+                    key=lambda x: (x.get('importance', 3), x.get('last_modified') or x.get('timestamp') or ''),
+                    reverse=True,
+                )
+
+            capped = active_memories[:limit]
+            total_active = len(capped)
+            first_page = capped[:page_size]
+            has_more = total_active > page_size
+
+            next_page_token = None
+            if has_more:
+                next_page_token = save_paginated_results(
+                    all_results=capped,
+                    page_size=page_size,
+                    query_info={"limit": limit, "page_size": page_size,
+                                "category": category, "sort_by": sort_by},
+                )
+
             return {
                 "success": True,
-                "memories": limited_memories,
-                "total_active": len(active_memories),
-                "returned_count": len(limited_memories),
-                "limit": limit
+                "memories": first_page,
+                "total_active": total_active,
+                "returned_count": len(first_page),
+                "has_more": has_more,
+                "next_page_token": next_page_token,
+                "search_criteria": {
+                    "category": category,
+                    "sort_by": sort_by,
+                    "limit": limit,
+                    "page_size": page_size,
+                },
             }
+
         except Exception as e:
             memory_db.close()
             raise e
-        
+
     except Exception as e:
         return {"error": str(e)}
 
@@ -449,10 +475,14 @@ def tinydb_update_memory(memory_id: str, content: str = "", tags: str = "",
                 
             if tags.strip():
                 tag_list = [tag.strip().lower() for tag in tags.split(',') if tag.strip()]
+                old_tag_set = set(existing[0].get('tags', []))
+                new_tag_set = set(tag_list)
+                removed_tags = list(old_tag_set - new_tag_set)
                 updates['tags'] = tag_list
-                # Register new tags
                 if tag_list:
                     tinydb_register_tags(tag_list)
+                if removed_tags:
+                    decrement_tag_usage(removed_tags)
                     
             if category.strip():
                 updates['category'] = category.strip()
@@ -483,6 +513,13 @@ def tinydb_update_memory(memory_id: str, content: str = "", tags: str = "",
                 # Get updated record
                 updated_record = memories_table.search(Record.id == memory_id)[0]
                 memory_db.close()
+                # Re-queue for enrichment when tags change
+                if 'tags' in updates:
+                    try:
+                        from .tag_enrichment import remove_from_enrichment_register
+                        remove_from_enrichment_register(memory_id)
+                    except Exception:
+                        pass
                 return {
                     "success": True,
                     "memory_id": memory_id,
@@ -527,7 +564,15 @@ def tinydb_delete_memory(memory_id: str) -> Dict[str, Any]:
             deleted_count = memories_table.remove(Record.id == memory_id)
             
             if deleted_count:
+                deleted_tags = existing[0].get('tags', [])
                 memory_db.close()
+                if deleted_tags:
+                    decrement_tag_usage(deleted_tags)
+                try:
+                    from .tag_enrichment import remove_from_enrichment_register
+                    remove_from_enrichment_register(memory_id)
+                except Exception:
+                    pass
                 return {
                     "success": True,
                     "memory_id": memory_id,
@@ -708,7 +753,8 @@ def memory_workflow_guide() -> Dict[str, Any]:
     try:
         stored_practices_result = tinydb_search_memories(
             category="best_practices",
-            limit=20
+            limit=20,
+            page_size=20,
         )
         
         if stored_practices_result.get("success") and stored_practices_result.get("memories"):

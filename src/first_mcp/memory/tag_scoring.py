@@ -1,20 +1,29 @@
 """
 Soft tag-to-tag similarity scoring for memory retrieval.
 
-Implements the scoring model from the MCP Memory Retrieval Architecture design
-(markdown/mcp-memory-retrieval-architecture.md):
+Scoring model:
 
-  For each query tag qi:
-    score(qi, memory) = max cosine_similarity(embed(qi), embed(mj))
-                        over all memory tags mj
+  For each query tag qi and a candidate memory:
+    sim(qi, memory) = max cosine_similarity(embed(qi), embed(mj))
+                      over all memory tags mj with stored embeddings
 
   Adaptive threshold per query tag (computed across all candidate memories):
-    threshold(qi) = mean(scores) + 0.5 * std(scores)
+    threshold(qi) = mean(sim) + 0.5 * std(sim)
+    When std ≈ 0 (single candidate or uniform scores), threshold is fixed at 0.5.
 
-  Rank score for a memory = Σ score(qi) for all qi where score > threshold
+  Tag relevance score (sum-of-squares):
+    tag_score = Σ sim(qi, memory)²  for all qi where sim > threshold
 
-This makes retrieval robust to vocabulary mismatch: "scheduling software"
-will still surface a memory tagged "timetabling" if their embeddings are close.
+  Final rank score blends tag relevance with memory importance:
+    rank_score = tag_score + IMPORTANCE_WEIGHT × importance
+
+  IMPORTANCE_WEIGHT = 0.333 so that the default importance level (3) contributes
+  ≈ 1.0 — the same order as a perfect single-tag match — making importance a
+  meaningful tiebreaker without overriding tag relevance.
+
+This makes retrieval robust to vocabulary mismatch ("scheduling" finds
+"timetabling") while naturally surfacing higher-importance memories among
+equally-relevant candidates.
 """
 
 import math
@@ -22,6 +31,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..embeddings import generate_embedding as _generate_embedding, cosine_similarity as _cosine_similarity
 from .database import get_tags_tinydb
+
+IMPORTANCE_WEIGHT = 0.333
 
 
 def build_tag_registry() -> Dict[str, List[float]]:
@@ -115,17 +126,19 @@ def score_memories_by_tags(
         else:
             thresholds[qt] = mean + 0.5 * std
 
-    # Second pass: rank score = sum of above-threshold scores per memory
+    # Second pass: rank score = sum-of-squares of above-threshold sims + importance weight
     scored: List[Tuple[float, Dict[str, Any], List[str]]] = []
     for i, memory in enumerate(all_memories):
-        rank_score = 0.0
+        tag_score = 0.0
         matched: List[str] = []
         for qt in qt_list:
             s = raw_scores[qt][i]
             if s > thresholds[qt]:
-                rank_score += s
+                tag_score += s * s
                 matched.append(qt)
-        if rank_score > 0:
+        if tag_score > 0:
+            importance = memory.get('importance', 3)
+            rank_score = tag_score + IMPORTANCE_WEIGHT * importance
             scored.append((rank_score, memory, matched))
 
     scored.sort(key=lambda x: x[0], reverse=True)

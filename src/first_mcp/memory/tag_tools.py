@@ -95,29 +95,28 @@ def tinydb_find_similar_tags(query: str, limit: int = 5, min_similarity: float =
     try:
         tags_db = get_tags_tinydb()
         tags_table = tags_db.table('tags')
-        
+
         # Generate embedding for query
         query_embedding = _generate_embedding(query)
-        
+
         all_tags = tags_table.all()
-        
+        tags_db.close()
+
         if not all_tags:
             return {
                 "success": True,
                 "similar_tags": [],
                 "message": "No tags found in database"
             }
-        
+
         similar_tags = []
-        
+
         # Use embeddings if available for both query and tags
         if query_embedding:
             for tag_entry in all_tags:
                 tag_embedding = tag_entry.get('embedding', [])
                 if tag_embedding and len(tag_embedding) > 0:
-                    # Calculate cosine similarity
                     similarity = _cosine_similarity(query_embedding, tag_embedding)
-                    
                     if similarity >= min_similarity:
                         similar_tags.append({
                             "tag": tag_entry.get('tag', ''),
@@ -126,21 +125,21 @@ def tinydb_find_similar_tags(query: str, limit: int = 5, min_similarity: float =
                             "last_used": tag_entry.get('last_used_at', ''),
                             "method": "embedding"
                         })
-        
+
         # Fallback to string similarity if no embeddings available
         if not similar_tags:
             query_lower = query.lower().strip()
             for tag_entry in all_tags:
                 tag = tag_entry.get('tag', '')
                 similarity = 0.0
-                
+
                 if query_lower in tag.lower():
                     similarity = 0.8
                 elif any(word in tag.lower() for word in query_lower.split()):
                     similarity = 0.6
                 elif any(word in query_lower for word in tag.lower().split()):
                     similarity = 0.4
-                    
+
                 if similarity >= min_similarity:
                     similar_tags.append({
                         "tag": tag,
@@ -149,17 +148,16 @@ def tinydb_find_similar_tags(query: str, limit: int = 5, min_similarity: float =
                         "last_used": tag_entry.get('last_used_at', ''),
                         "method": "string"
                     })
-        
-        # Sort by similarity first, then usage count
+
         similar_tags.sort(key=lambda x: (x['similarity'], x['usage_count']), reverse=True)
-        
+
         return {
             "success": True,
             "query": query,
             "similar_tags": similar_tags[:limit],
             "total_found": len(similar_tags)
         }
-        
+
     except Exception as e:
         return {"error": str(e)}
 
@@ -266,6 +264,43 @@ def tinydb_embedding_stats() -> Dict[str, Any]:
         
     except Exception as e:
         return {"error": str(e)}
+
+
+def increment_tag_usage(tag_names: List[str]) -> None:
+    """Bump usage_count by 1 for each tag in `tag_names` that exists in the registry."""
+    if not tag_names:
+        return
+    tags_db = get_tags_tinydb()
+    tags_table = tags_db.table('tags')
+    Record = Query()
+    now = datetime.now().isoformat()
+    for tag in tag_names:
+        existing = tags_table.search(Record.tag == tag)
+        if existing:
+            tags_table.update(
+                {'usage_count': existing[0]['usage_count'] + 1, 'last_used_at': now},
+                Record.tag == tag,
+            )
+    tags_db.close()
+
+
+def decrement_tag_usage(tag_names: List[str]) -> None:
+    """Decrement usage_count by 1 (floor at 0) for each tag in `tag_names`.
+
+    Called when tags are removed from a memory so the count stays consistent
+    with the number of memories actively using each tag.
+    """
+    if not tag_names:
+        return
+    tags_db = get_tags_tinydb()
+    tags_table = tags_db.table('tags')
+    Record = Query()
+    for tag in tag_names:
+        existing = tags_table.search(Record.tag == tag)
+        if existing:
+            new_count = max(0, existing[0]['usage_count'] - 1)
+            tags_table.update({'usage_count': new_count}, Record.tag == tag)
+    tags_db.close()
 
 
 def tinydb_get_all_tags() -> Dict[str, Any]:

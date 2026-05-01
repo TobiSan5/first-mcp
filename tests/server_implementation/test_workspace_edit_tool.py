@@ -16,6 +16,10 @@ from fastmcp import Client
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
+_TMPDIR = tempfile.mkdtemp()
+os.environ['FIRST_MCP_DATA_PATH'] = _TMPDIR
+os.environ['FIRST_MCP_ENRICHMENT_DISABLED'] = '1'
+
 
 def _setup_env():
     test_dir = tempfile.mkdtemp()
