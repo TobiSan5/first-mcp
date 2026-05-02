@@ -97,7 +97,12 @@ def cosine_similarity(embedding1: List[float], embedding2: List[float]) -> float
     Returns:
         Cosine similarity score in range [0.0, 1.0]
     """
-    if not embedding1 or not embedding2:
+    if embedding1 is None or embedding2 is None:
+        return 0.0
+    try:
+        if len(embedding1) == 0 or len(embedding2) == 0:
+            return 0.0
+    except TypeError:
         return 0.0
 
     try:

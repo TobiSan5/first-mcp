@@ -30,28 +30,35 @@ import math
 import time as _time
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as _np
+
 from ..embeddings import generate_embedding as _generate_embedding, cosine_similarity as _cosine_similarity
 from .database import get_tags_tinydb
 
 IMPORTANCE_WEIGHT = 0.333
 _REGISTRY_CACHE_TTL = 300  # seconds
 
-_registry_cache: Optional[Dict[str, List[float]]] = None
+# Cache stores pre-converted numpy arrays so scoring avoids repeated Python-list
+# → numpy conversion (each 3072-float conversion holds the GIL for ~100 µs).
+_registry_cache: Optional[Dict[str, "_np.ndarray"]] = None
 _registry_cache_loaded_at: float = 0.0
 
 
-def build_tag_registry() -> Dict[str, List[float]]:
+def build_tag_registry() -> Dict[str, "_np.ndarray"]:
     """
-    Load all tags that have stored embeddings into a dict.
+    Load all tags that have stored embeddings into a dict of numpy arrays.
 
-    Caches the result in memory for _REGISTRY_CACHE_TTL seconds.  The first
-    call (or any call after cache expiry) reads TinyDB; all others return the
-    cached dict instantly.  Call warm_tag_registry_cache() at server startup to
-    pay the I/O cost before the MCP transport starts so tool calls are never
-    blocked by the initial JSON parse.
+    Embeddings are converted from Python lists to numpy float32 arrays once at
+    cache-load time.  Subsequent scoring calls receive pre-converted arrays, so
+    cosine_similarity only does a fast array copy (~1 µs) instead of a Python-
+    object iteration (~100 µs per 3072-float list).
+
+    Caches the result for _REGISTRY_CACHE_TTL seconds.  Call
+    warm_tag_registry_cache() at server startup to pay the I/O + conversion cost
+    before mcp.run() so tool calls are never blocked by this work.
 
     Returns:
-        {tag_name: embedding_vector} — only entries with non-empty embeddings.
+        {tag_name: np.ndarray float32} — only entries with non-empty embeddings.
     """
     import sys
     global _registry_cache, _registry_cache_loaded_at
@@ -68,12 +75,12 @@ def build_tag_registry() -> Dict[str, List[float]]:
         all_tags = tags_table.all()
         tags_db.close()
 
-        registry: Dict[str, List[float]] = {}
+        registry: Dict[str, "_np.ndarray"] = {}
         for entry in all_tags:
             tag = entry.get('tag', '')
             emb = entry.get('embedding', [])
             if tag and emb and len(emb) > 0:
-                registry[tag] = emb
+                registry[tag] = _np.array(emb, dtype=_np.float32)
 
         _registry_cache = registry
         _registry_cache_loaded_at = _time.monotonic()
@@ -121,17 +128,19 @@ def score_memories_by_tags(
     import sys
     t0 = _time.monotonic()
 
-    # Resolve embeddings for query tags (registry first, on-the-fly fallback)
-    qt_embeddings: Dict[str, List[float]] = {}
+    # Resolve embeddings for query tags (registry first, on-the-fly fallback).
+    # Registry values are already numpy arrays; API fallback returns a list — convert once here.
+    qt_embeddings: Dict[str, "_np.ndarray"] = {}
     for qt in query_tags:
         emb = tag_registry.get(qt)
-        in_registry = emb is not None
         if emb is None:
             print(f"{_time.monotonic():.3f} [scoring] qt={qt!r} not in registry, calling API", file=sys.stderr, flush=True)
-            emb = _generate_embedding(qt)
+            raw = _generate_embedding(qt)
+            if raw:
+                emb = _np.array(raw, dtype=_np.float32)
         else:
-            print(f"{_time.monotonic():.3f} [scoring] qt={qt!r} found in registry", file=sys.stderr, flush=True)
-        if emb:
+            print(f"{_time.monotonic():.3f} [scoring] qt={qt!r} found in registry (numpy)", file=sys.stderr, flush=True)
+        if emb is not None:
             qt_embeddings[qt] = emb
 
     if not qt_embeddings:
@@ -153,7 +162,18 @@ def score_memories_by_tags(
         for qt in qt_list:
             qt_emb = qt_embeddings[qt]
             if mem_embs:
-                best = max(_cosine_similarity(qt_emb, mt_emb) for mt_emb in mem_embs)
+                # Direct numpy dot products — no np.array() re-conversion since
+                # both qt_emb and each mt_emb are already float32 numpy arrays.
+                qt_norm = _np.linalg.norm(qt_emb)
+                if qt_norm == 0:
+                    best = 0.0
+                else:
+                    sims = []
+                    for mt_emb in mem_embs:
+                        mt_norm = _np.linalg.norm(mt_emb)
+                        sim = 0.0 if mt_norm == 0 else float(_np.dot(qt_emb, mt_emb) / (qt_norm * mt_norm))
+                        sims.append(max(0.0, min(1.0, sim)))
+                    best = max(sims)
             else:
                 best = 0.0
             raw_scores[qt].append(best)
