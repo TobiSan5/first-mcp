@@ -606,12 +606,9 @@ def main():
     import time as _time
     print("Starting First MCP Test Server...", file=sys.stderr, flush=True)
 
-    # Pre-warm every heavy package before mcp.run() starts.
-    # Each first import holds the GIL on Windows for 1-3s, which freezes the
-    # asyncio event loop long enough for Claude Desktop to close the transport.
-    # Paying these costs here (before the MCP handshake) avoids mid-request hangs.
     t0 = _time.monotonic()
 
+    # Fast synchronous pre-warms (proven within startup budget).
     try:
         from . import memory as _memory_warmup  # noqa: F401
         print(f"memory pkg pre-loaded ({_time.monotonic()-t0:.2f}s).", file=sys.stderr, flush=True)
@@ -620,23 +617,33 @@ def main():
 
     t1 = _time.monotonic()
     try:
-        import numpy  # noqa: F401
-        print(f"numpy pre-loaded ({_time.monotonic()-t1:.2f}s).", file=sys.stderr, flush=True)
-    except ImportError:
-        print("numpy not available — semantic search disabled.", file=sys.stderr, flush=True)
-    except Exception as e:
-        print(f"numpy pre-warm failed: {e}", file=sys.stderr, flush=True)
-
-    t2 = _time.monotonic()
-    try:
         import google.genai  # noqa: F401
-        print(f"google.genai pre-loaded ({_time.monotonic()-t2:.2f}s).", file=sys.stderr, flush=True)
+        print(f"google.genai pre-loaded ({_time.monotonic()-t1:.2f}s).", file=sys.stderr, flush=True)
     except ImportError:
         print("google.genai not available — embedding features disabled.", file=sys.stderr, flush=True)
     except Exception as e:
         print(f"google.genai pre-warm failed: {e}", file=sys.stderr, flush=True)
 
-    print(f"Total pre-warm: {_time.monotonic()-t0:.2f}s. Starting MCP transport.", file=sys.stderr, flush=True)
+    # Numpy is too slow to import synchronously on Windows without exceeding the
+    # MCP initialize timeout, but importing it lazily mid-request holds the GIL
+    # and causes Claude Desktop to close the transport. Background-thread import
+    # is the solution: if a tool call reaches `import numpy` while this thread is
+    # still running, the tool thread waits on Python's per-module import lock,
+    # which releases the GIL — so the event loop stays responsive during the wait.
+    def _warmup_numpy() -> None:
+        t = _time.monotonic()
+        try:
+            import numpy  # noqa: F401
+            print(f"numpy pre-loaded ({_time.monotonic()-t:.2f}s).", file=sys.stderr, flush=True)
+        except ImportError:
+            print("numpy not available — semantic search disabled.", file=sys.stderr, flush=True)
+        except Exception as e:
+            print(f"numpy pre-warm failed: {e}", file=sys.stderr, flush=True)
+
+    import threading as _threading
+    _threading.Thread(target=_warmup_numpy, daemon=True, name="numpy-warmup").start()
+
+    print(f"Sync pre-warm done ({_time.monotonic()-t0:.2f}s). Starting MCP transport.", file=sys.stderr, flush=True)
     mcp.run(transport="stdio", show_banner=False)
 
 
