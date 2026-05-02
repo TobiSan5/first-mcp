@@ -63,6 +63,8 @@ Documentation = "https://github.com/TobiSan5/first-mcp#readme"
 [project.scripts]
 # Main MCP server entry point
 first-mcp = "first_mcp.server:main"
+# Minimal test server for incremental diagnosis
+first-mcp-test = "first_mcp.server_test:main"
 # Legacy compatibility (same as main for now)
 first-mcp-legacy = "first_mcp.server:main"
 # Standalone tag enrichment runner — schedule externally, do not run inside the server
