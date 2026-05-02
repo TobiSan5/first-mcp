@@ -2,10 +2,16 @@
 Core memory management tools for the TinyDB memory system.
 """
 
+import sys
+import time
 import uuid
 from datetime import datetime
 from typing import Dict, Any, List
 from tinydb import Query
+
+
+def _log_search(msg: str) -> None:
+    print(f"{time.monotonic():.3f} [search] {msg}", file=sys.stderr, flush=True)
 
 from .database import get_memory_tinydb, get_categories_tinydb
 from .tag_tools import tinydb_register_tags, decrement_tag_usage
@@ -220,6 +226,7 @@ def tinydb_search_memories(tags: str = "", content_keywords: str = "", category:
         limit: Hard cap on total memories considered (default 50).
         semantic_search: False uses exact tag matching only (default True).
     """
+    _log_search(f"start tags={tags!r} semantic={semantic_search}")
     try:
         memory_db = get_memory_tinydb()
         try:
@@ -237,6 +244,7 @@ def tinydb_search_memories(tags: str = "", content_keywords: str = "", category:
                     }
 
             # Load and filter expired memories
+            _log_search("loading memories from TinyDB")
             current_time = datetime.now()
             all_memories = []
             for memory in memories_table.all():
@@ -250,6 +258,7 @@ def tinydb_search_memories(tags: str = "", content_keywords: str = "", category:
                 all_memories.append(memory)
 
             memory_db.close()
+            _log_search(f"loaded {len(all_memories)} memories")
 
             # Content keyword filter
             if content_keywords:
@@ -272,11 +281,23 @@ def tinydb_search_memories(tags: str = "", content_keywords: str = "", category:
                 input_tags = [t.strip().lower() for t in tags.split(',') if t.strip()]
 
                 if semantic_search:
-                    tag_registry = build_tag_registry()
+                    _log_search("building tag registry")
+                    try:
+                        tag_registry = build_tag_registry()
+                    except Exception as e:
+                        _log_search(f"build_tag_registry failed: {e}")
+                        raise
+                    _log_search(f"tag registry: {len(tag_registry)} tags")
                     if tag_registry:
-                        scored = score_memories_by_tags(input_tags, all_memories, tag_registry)
+                        _log_search("scoring memories")
+                        try:
+                            scored = score_memories_by_tags(input_tags, all_memories, tag_registry)
+                        except Exception as e:
+                            _log_search(f"score_memories_by_tags failed: {e}")
+                            raise
                         filtered_results = [mem for (_, mem, _) in scored][:limit]
                         scored_method = "tag_scoring"
+                        _log_search(f"scoring done: {len(filtered_results)} results")
                     else:
                         expanded = set(input_tags)
                         for t in input_tags:
@@ -316,16 +337,23 @@ def tinydb_search_memories(tags: str = "", content_keywords: str = "", category:
 
             next_page_token = None
             if has_more:
-                next_page_token = save_paginated_results(
-                    all_results=filtered_results,
-                    page_size=page_size,
-                    query_info={
-                        "content_keywords": content_keywords, "tags": tags, "category": category,
-                        "limit": limit, "semantic_search": semantic_search,
-                        "page_size": page_size, "sort_by": sort_by,
-                    },
-                )
+                _log_search("saving paginated results")
+                try:
+                    next_page_token = save_paginated_results(
+                        all_results=filtered_results,
+                        page_size=page_size,
+                        query_info={
+                            "content_keywords": content_keywords, "tags": tags, "category": category,
+                            "limit": limit, "semantic_search": semantic_search,
+                            "page_size": page_size, "sort_by": sort_by,
+                        },
+                    )
+                except Exception as e:
+                    _log_search(f"save_paginated_results failed: {e}")
+                    raise
+                _log_search("pagination saved")
 
+            _log_search(f"returning {len(first_page)} memories, method={scored_method}")
             return {
                 "success": True,
                 "memories": first_page,
@@ -346,10 +374,12 @@ def tinydb_search_memories(tags: str = "", content_keywords: str = "", category:
             }
 
         except Exception as e:
+            _log_search(f"inner exception: {e}")
             memory_db.close()
             raise e
 
     except Exception as e:
+        _log_search(f"outer exception: {e}")
         return {"error": str(e)}
 
 
