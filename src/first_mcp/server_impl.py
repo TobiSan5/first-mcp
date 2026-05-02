@@ -1021,7 +1021,7 @@ def main():
     if cleaned:
         print(f"✓ Cleaned {cleaned} stale paginated temp file(s)", file=sys.stderr)
 
-    mcp.run(transport="stdio")
+    mcp.run(transport="stdio", show_banner=False)
 
 
 if __name__ == "__main__":
