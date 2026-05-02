@@ -83,10 +83,30 @@ def tinydb_memorize(content: str, tags: str = "", category: str = "",
             # Parse and process tags with smart mapping
             raw_tags = [tag.strip().lower() for tag in tags.split(',') if tag.strip()] if tags else []
             
-            # Apply smart tag mapping for consolidation and optimization
+            # Apply smart tag mapping for consolidation and optimization.
+            # Wrapped with a timeout: smart_tag_mapping makes N sequential embedding
+            # API calls (one per tag + content). If they stack past the MCP tool-call
+            # timeout the client disconnects. Fall back to raw tags on timeout.
             if raw_tags:
                 from .tag_mapper import smart_tag_mapping
-                mapping_result = smart_tag_mapping(raw_tags, content, max_tags=3)
+                import concurrent.futures as _cf
+                _TAG_MAPPING_TIMEOUT = 4.0  # seconds — safe margin under Claude Desktop's limit
+                with _cf.ThreadPoolExecutor(max_workers=1) as _pool:
+                    _fut = _pool.submit(smart_tag_mapping, raw_tags, content, max_tags=3)
+                    try:
+                        mapping_result = _fut.result(timeout=_TAG_MAPPING_TIMEOUT)
+                    except _cf.TimeoutError:
+                        print(
+                            f"[memory_tools] smart_tag_mapping timed out after {_TAG_MAPPING_TIMEOUT}s"
+                            f" — using raw tags {raw_tags}",
+                            file=sys.stderr, flush=True,
+                        )
+                        mapping_result = {
+                            'final_tags': raw_tags,
+                            'mapping_applied': False,
+                            'transparency_info': f'Tag mapping skipped (>{_TAG_MAPPING_TIMEOUT}s timeout)',
+                            'auto_replacements': 0,
+                        }
                 tag_list = mapping_result.get('final_tags', raw_tags)
                 # Store mapping info for transparency
                 mapping_info = {
