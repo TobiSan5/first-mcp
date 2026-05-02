@@ -473,9 +473,9 @@ def tinydb_recall_memory(memory_id: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def tinydb_search_memories(tags: str = "", content_keywords: str = "", category: str = "",
-                          limit: int = 50, semantic_search: bool = True,
-                          page_size: int = 5, sort_by: str = "relevance") -> Dict[str, Any]:
+async def tinydb_search_memories(tags: str = "", content_keywords: str = "", category: str = "",
+                                 limit: int = 50, semantic_search: bool = True,
+                                 page_size: int = 5, sort_by: str = "relevance") -> Dict[str, Any]:
     """
     Search memories by tag similarity — the primary retrieval tool.
 
@@ -492,7 +492,9 @@ def tinydb_search_memories(tags: str = "", content_keywords: str = "", category:
         limit: Hard cap on total memories considered (default 50).
         semantic_search: False uses exact tag matching only (default True).
     """
-    result = _tinydb_search_memories(
+    import asyncio
+    result = await asyncio.to_thread(
+        _tinydb_search_memories,
         tags=tags, content_keywords=content_keywords, category=category,
         limit=limit, semantic_search=semantic_search,
         page_size=page_size, sort_by=sort_by,
