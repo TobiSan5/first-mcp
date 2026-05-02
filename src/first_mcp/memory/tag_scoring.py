@@ -53,11 +53,14 @@ def build_tag_registry() -> Dict[str, List[float]]:
     Returns:
         {tag_name: embedding_vector} — only entries with non-empty embeddings.
     """
+    import sys
     global _registry_cache, _registry_cache_loaded_at
 
     now = _time.monotonic()
     if _registry_cache is not None and now - _registry_cache_loaded_at < _REGISTRY_CACHE_TTL:
+        print(f"{now:.3f} [tag_registry] cache hit ({len(_registry_cache)} tags)", file=sys.stderr, flush=True)
         return _registry_cache
+    print(f"{now:.3f} [tag_registry] cold load (cache={'None' if _registry_cache is None else 'expired'})", file=sys.stderr, flush=True)
 
     try:
         tags_db = get_tags_tinydb()
@@ -115,19 +118,28 @@ def score_memories_by_tags(
         rank_score.  Memories with no tag match above threshold are omitted.
         Returns [] when no query-tag embeddings are resolvable.
     """
+    import sys
+    t0 = _time.monotonic()
+
     # Resolve embeddings for query tags (registry first, on-the-fly fallback)
     qt_embeddings: Dict[str, List[float]] = {}
     for qt in query_tags:
         emb = tag_registry.get(qt)
+        in_registry = emb is not None
         if emb is None:
+            print(f"{_time.monotonic():.3f} [scoring] qt={qt!r} not in registry, calling API", file=sys.stderr, flush=True)
             emb = _generate_embedding(qt)
+        else:
+            print(f"{_time.monotonic():.3f} [scoring] qt={qt!r} found in registry", file=sys.stderr, flush=True)
         if emb:
             qt_embeddings[qt] = emb
 
     if not qt_embeddings:
+        print(f"{_time.monotonic():.3f} [scoring] no qt embeddings resolved, returning []", file=sys.stderr, flush=True)
         return []
 
     qt_list = list(qt_embeddings.keys())
+    print(f"{_time.monotonic():.3f} [scoring] first pass: {len(all_memories)} memories × {len(qt_list)} query tags", file=sys.stderr, flush=True)
 
     # First pass: raw_scores[qt][i] = best cosine sim between qt and memory[i]'s tags
     raw_scores: Dict[str, List[float]] = {qt: [] for qt in qt_list}
@@ -145,6 +157,8 @@ def score_memories_by_tags(
             else:
                 best = 0.0
             raw_scores[qt].append(best)
+
+    print(f"{_time.monotonic():.3f} [scoring] first pass done ({_time.monotonic()-t0:.3f}s total so far)", file=sys.stderr, flush=True)
 
     # Adaptive threshold per query tag: mean + 0.5 * std across all memories.
     # When std ≈ 0 (single candidate or all scores identical) the formula collapses
@@ -164,6 +178,8 @@ def score_memories_by_tags(
         else:
             thresholds[qt] = mean + 0.5 * std
 
+    print(f"{_time.monotonic():.3f} [scoring] second pass", file=sys.stderr, flush=True)
+
     # Second pass: rank score = sum-of-squares of above-threshold sims + importance weight
     scored: List[Tuple[float, Dict[str, Any], List[str]]] = []
     for i, memory in enumerate(all_memories):
@@ -178,6 +194,8 @@ def score_memories_by_tags(
             importance = memory.get('importance', 3)
             rank_score = tag_score + IMPORTANCE_WEIGHT * importance
             scored.append((rank_score, memory, matched))
+
+    print(f"{_time.monotonic():.3f} [scoring] done: {len(scored)} hits ({_time.monotonic()-t0:.3f}s total)", file=sys.stderr, flush=True)
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return scored
