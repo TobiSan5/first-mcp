@@ -30,8 +30,6 @@ import math
 import time as _time
 from typing import Any, Dict, List, Optional, Tuple
 
-import numpy as _np
-
 from ..embeddings import generate_embedding as _generate_embedding, cosine_similarity as _cosine_similarity
 from .database import get_tags_tinydb
 
@@ -61,6 +59,7 @@ def build_tag_registry() -> Dict[str, "_np.ndarray"]:
         {tag_name: np.ndarray float32} — only entries with non-empty embeddings.
     """
     import sys
+    import numpy as _np
     global _registry_cache, _registry_cache_loaded_at
 
     now = _time.monotonic()
@@ -126,6 +125,7 @@ def score_memories_by_tags(
         Returns [] when no query-tag embeddings are resolvable.
     """
     import sys
+    import numpy as _np
     t0 = _time.monotonic()
 
     # Resolve embeddings for query tags (registry first, on-the-fly fallback).

@@ -604,6 +604,14 @@ def tinydb_get_database_info(db_name: str) -> Dict[str, Any]:
 
 def main():
     print("Starting First MCP Test Server...", file=sys.stderr, flush=True)
+    # Pre-warm the memory package before the MCP transport starts so tool calls
+    # never block on a cold import. Numpy stays lazy (only loaded on first semantic
+    # search); everything else in .memory is loaded here.
+    try:
+        from . import memory as _memory_warmup  # noqa: F401
+        print("Memory package pre-loaded.", file=sys.stderr, flush=True)
+    except Exception as e:
+        print(f"Memory pre-warm failed: {e}", file=sys.stderr, flush=True)
     mcp.run(transport="stdio", show_banner=False)
 
 
