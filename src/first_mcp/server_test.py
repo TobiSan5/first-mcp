@@ -8,7 +8,9 @@ before any heavy module is loaded.
 Entry point: first-mcp-test
 
 Batch 1: utility + math/time tools — stdlib only, no heavy deps.
-Batch 2: weather, tool_info, embedding, bible tools — all lazy imports.
+Batch 2: weather, tool_info, bible tools — lazy imports.
+         (embedding tools deferred: google.genai import + HTTP calls need
+          separate investigation to avoid GIL/timeout disconnect)
 """
 
 import os
@@ -243,47 +245,6 @@ def tool_info(tool_name: str) -> Dict[str, Any]:
     with open(path, encoding="utf-8") as fh:
         content = fh.read()
     return add_server_timestamp({"success": True, "tool_name": tool_name, "documentation": content})
-
-
-@mcp.tool()
-def compute_text_similarity(
-    query: str,
-    text: str,
-    context: str = "",
-    text_weight: float = 0.7,
-    context_weight: float = 0.3,
-) -> Dict[str, Any]:
-    """
-    Compute semantic similarity between a query and a text, with optional context weighting.
-
-    Requires GOOGLE_API_KEY environment variable.
-
-    Args:
-        query: Reference text or semantic label to compare against
-        text: Primary text to evaluate
-        context: Optional surrounding context. Ignored if empty.
-        text_weight: Weight for the text embedding when context is used. Default: 0.7
-        context_weight: Weight for the context embedding. Default: 0.3
-    """
-    from .embeddings import compute_text_similarity as _compute_text_similarity
-    result = _compute_text_similarity(query, text, context, text_weight, context_weight)
-    return add_server_timestamp(result)
-
-
-@mcp.tool()
-def rank_texts_by_similarity(query: str, candidates: List[str]) -> Dict[str, Any]:
-    """
-    Rank a list of texts by semantic similarity to a query text.
-
-    Requires GOOGLE_API_KEY environment variable.
-
-    Args:
-        query: Reference text to compare against
-        candidates: List of texts to rank
-    """
-    from .embeddings import rank_texts_by_similarity as _rank_texts_by_similarity
-    result = _rank_texts_by_similarity(query, candidates)
-    return add_server_timestamp(result)
 
 
 @mcp.tool()
