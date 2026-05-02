@@ -1002,6 +1002,12 @@ def main():
     elif migration.get("action") == "none":
         print(f"✓ Tag embeddings current ({migration.get('reason', '')})", file=sys.stderr)
 
+    # Pre-load tag registry before the MCP transport starts so the slow JSON
+    # parse never blocks a live tool call (1905 tags = ~2.4 s GIL-hold).
+    from .memory.tag_scoring import warm_tag_registry_cache
+    tag_count = warm_tag_registry_cache()
+    print(f"✓ Tag registry warmed: {tag_count} tags cached", file=sys.stderr)
+
     mcp.run(transport="stdio")
 
 

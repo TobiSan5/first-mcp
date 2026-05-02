@@ -27,21 +27,38 @@ equally-relevant candidates.
 """
 
 import math
+import time as _time
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..embeddings import generate_embedding as _generate_embedding, cosine_similarity as _cosine_similarity
 from .database import get_tags_tinydb
 
 IMPORTANCE_WEIGHT = 0.333
+_REGISTRY_CACHE_TTL = 300  # seconds
+
+_registry_cache: Optional[Dict[str, List[float]]] = None
+_registry_cache_loaded_at: float = 0.0
 
 
 def build_tag_registry() -> Dict[str, List[float]]:
     """
     Load all tags that have stored embeddings into a dict.
 
+    Caches the result in memory for _REGISTRY_CACHE_TTL seconds.  The first
+    call (or any call after cache expiry) reads TinyDB; all others return the
+    cached dict instantly.  Call warm_tag_registry_cache() at server startup to
+    pay the I/O cost before the MCP transport starts so tool calls are never
+    blocked by the initial JSON parse.
+
     Returns:
         {tag_name: embedding_vector} — only entries with non-empty embeddings.
     """
+    global _registry_cache, _registry_cache_loaded_at
+
+    now = _time.monotonic()
+    if _registry_cache is not None and now - _registry_cache_loaded_at < _REGISTRY_CACHE_TTL:
+        return _registry_cache
+
     try:
         tags_db = get_tags_tinydb()
         tags_table = tags_db.table('tags')
@@ -54,9 +71,30 @@ def build_tag_registry() -> Dict[str, List[float]]:
             emb = entry.get('embedding', [])
             if tag and emb and len(emb) > 0:
                 registry[tag] = emb
+
+        _registry_cache = registry
+        _registry_cache_loaded_at = _time.monotonic()
         return registry
     except Exception:
         return {}
+
+
+def warm_tag_registry_cache() -> int:
+    """
+    Pre-load the tag registry into memory.  Call once at server startup, before
+    mcp.run(), so the slow JSON parse happens before the MCP transport starts
+    and never blocks a live tool call.
+
+    Returns the number of tags loaded.
+    """
+    registry = build_tag_registry()
+    return len(registry)
+
+
+def invalidate_tag_registry_cache() -> None:
+    """Force the next build_tag_registry() call to reload from TinyDB."""
+    global _registry_cache
+    _registry_cache = None
 
 
 def score_memories_by_tags(
