@@ -603,15 +603,30 @@ def tinydb_get_database_info(db_name: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def main():
+    import time as _time
     print("Starting First MCP Test Server...", file=sys.stderr, flush=True)
-    # Pre-warm the memory package before the MCP transport starts so tool calls
-    # never block on a cold import. Numpy stays lazy (only loaded on first semantic
-    # search); everything else in .memory is loaded here.
+
+    # Pre-warm the memory package (TinyDB, pydantic, etc.) before the MCP
+    # transport starts. Numpy stays lazy — loaded only on first semantic search.
+    t0 = _time.monotonic()
     try:
         from . import memory as _memory_warmup  # noqa: F401
-        print("Memory package pre-loaded.", file=sys.stderr, flush=True)
+        print(f"Memory package pre-loaded ({_time.monotonic()-t0:.2f}s).", file=sys.stderr, flush=True)
     except Exception as e:
         print(f"Memory pre-warm failed: {e}", file=sys.stderr, flush=True)
+
+    # Pre-warm google.genai so the first tinydb_memorize (which runs smart_tag_mapping
+    # → generate_embedding → import google.genai) doesn't hold the GIL mid-request.
+    t1 = _time.monotonic()
+    try:
+        import google.genai  # noqa: F401
+        print(f"google.genai pre-loaded ({_time.monotonic()-t1:.2f}s).", file=sys.stderr, flush=True)
+    except ImportError:
+        print("google.genai not available — embedding features disabled.", file=sys.stderr, flush=True)
+    except Exception as e:
+        print(f"google.genai pre-warm failed: {e}", file=sys.stderr, flush=True)
+
+    print(f"Total pre-warm: {_time.monotonic()-t0:.2f}s. Starting MCP transport.", file=sys.stderr, flush=True)
     mcp.run(transport="stdio", show_banner=False)
 
 
