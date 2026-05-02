@@ -9,11 +9,13 @@ No TinyDB access, no business logic, no if/else branching beyond what
 FastMCP requires for parameter defaults.
 """
 
+import asyncio
 import os
 import sys
 from typing import List, Dict, Any
 
 from fastmcp import FastMCP
+from fastmcp.server.lifespan import lifespan as _lifespan_decorator
 
 from .weather import WeatherAPI, GeocodingAPI
 from .fileio import WorkspaceManager
@@ -75,7 +77,37 @@ def add_server_timestamp(response: Dict[str, Any]) -> Dict[str, Any]:
 # Server lifecycle
 # ---------------------------------------------------------------------------
 
-mcp = FastMCP(name="First MCP Server")
+@_lifespan_decorator
+async def _lifespan(server: FastMCP):
+    """
+    Non-blocking startup warm-up: migrate tag embeddings and pre-load the tag
+    registry cache into memory.  Runs as a background asyncio task so the MCP
+    transport can complete its initialize handshake immediately, without waiting
+    for the ~5 s TinyDB read + numpy conversion to finish.
+    """
+    async def _warm_up() -> None:
+        from .memory.tag_tools import check_and_migrate_tag_embeddings
+        from .memory.tag_scoring import warm_tag_registry_cache
+        try:
+            migration = await asyncio.to_thread(check_and_migrate_tag_embeddings)
+            if migration.get("action") == "migrated":
+                print(
+                    f"✓ Tag embeddings migrated: {migration.get('updated', 0)} updated "
+                    f"({migration.get('previous_model')} -> {migration.get('embedding_model')})",
+                    file=sys.stderr,
+                )
+            count = await asyncio.to_thread(warm_tag_registry_cache)
+            print(f"✓ Tag registry warmed: {count} tags cached", file=sys.stderr)
+        except Exception as e:
+            print(f"✗ Startup warm-up failed: {e}", file=sys.stderr)
+
+    task = asyncio.create_task(_warm_up())
+    yield {}
+    if not task.done():
+        await task
+
+
+mcp = FastMCP(name="First MCP Server", lifespan=_lifespan)
 
 # Module-level singletons
 workspace_manager = WorkspaceManager()
@@ -473,9 +505,9 @@ def tinydb_recall_memory(memory_id: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-async def tinydb_search_memories(tags: str = "", content_keywords: str = "", category: str = "",
-                                 limit: int = 50, semantic_search: bool = True,
-                                 page_size: int = 5, sort_by: str = "relevance") -> Dict[str, Any]:
+def tinydb_search_memories(tags: str = "", content_keywords: str = "", category: str = "",
+                           limit: int = 50, semantic_search: bool = True,
+                           page_size: int = 5, sort_by: str = "relevance") -> Dict[str, Any]:
     """
     Search memories by tag similarity — the primary retrieval tool.
 
@@ -492,14 +524,11 @@ async def tinydb_search_memories(tags: str = "", content_keywords: str = "", cat
         limit: Hard cap on total memories considered (default 50).
         semantic_search: False uses exact tag matching only (default True).
     """
-    import asyncio
-    result = await asyncio.to_thread(
-        _tinydb_search_memories,
+    return add_server_timestamp(_tinydb_search_memories(
         tags=tags, content_keywords=content_keywords, category=category,
         limit=limit, semantic_search=semantic_search,
         page_size=page_size, sort_by=sort_by,
-    )
-    return add_server_timestamp(result)
+    ))
 
 
 @mcp.tool()
@@ -991,24 +1020,6 @@ def main():
     cleaned = cleanup_paginated_files()
     if cleaned:
         print(f"✓ Cleaned {cleaned} stale paginated temp file(s)", file=sys.stderr)
-
-    # Migrate tag embeddings if the embedding model has changed
-    from .memory.tag_tools import check_and_migrate_tag_embeddings
-    migration = check_and_migrate_tag_embeddings()
-    if migration.get("action") == "migrated":
-        print(
-            f"✓ Tag embeddings migrated: {migration.get('updated', 0)} updated "
-            f"({migration.get('previous_model')} -> {migration.get('embedding_model')})",
-            file=sys.stderr,
-        )
-    elif migration.get("action") == "none":
-        print(f"✓ Tag embeddings current ({migration.get('reason', '')})", file=sys.stderr)
-
-    # Pre-load tag registry before the MCP transport starts so the slow JSON
-    # parse never blocks a live tool call (1905 tags = ~2.4 s GIL-hold).
-    from .memory.tag_scoring import warm_tag_registry_cache
-    tag_count = warm_tag_registry_cache()
-    print(f"✓ Tag registry warmed: {tag_count} tags cached", file=sys.stderr)
 
     mcp.run(transport="stdio")
 
