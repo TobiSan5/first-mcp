@@ -31,30 +31,19 @@ def tinydb_register_tags(tag_list: List[str]) -> Dict[str, Any]:
                     )
                     registered.append(f"Updated: {tag}")
                 else:
-                    # Generate embedding for new tag
-                    embedding = _generate_embedding(tag)
-                    
-                    # Create new tag entry
+                    # Store tag without embedding — the enrichment loop (first-mcp-enrich)
+                    # generates embeddings asynchronously. Generating inline here stacks
+                    # one API call per new tag on the hot path of tinydb_memorize, which
+                    # pushes the total response time past the MCP tool-call timeout.
                     tag_data = {
                         'tag': tag,
                         'usage_count': 1,
                         'created_at': datetime.now().isoformat(),
                         'last_used_at': datetime.now().isoformat(),
-                        'embedding': embedding if embedding else []
+                        'embedding': []
                     }
-                    
-                    # Add embedding metadata if successful
-                    if embedding:
-                        tag_data['embedding_generated_at'] = datetime.now().isoformat()
-                        tag_data['embedding_model'] = EMBEDDING_MODEL
-                    
                     tags_table.insert(tag_data)
-                    status = f"Created: {tag}"
-                    if embedding:
-                        status += " (with embedding)"
-                    else:
-                        status += " (no embedding - API unavailable)"
-                    registered.append(status)
+                    registered.append(f"Created: {tag} (embedding deferred to enrichment loop)")
                     
             # Force flush to disk
             tags_db.close()
@@ -96,9 +85,6 @@ def tinydb_find_similar_tags(query: str, limit: int = 5, min_similarity: float =
         tags_db = get_tags_tinydb()
         tags_table = tags_db.table('tags')
 
-        # Generate embedding for query
-        query_embedding = _generate_embedding(query)
-
         all_tags = tags_table.all()
         tags_db.close()
 
@@ -108,6 +94,9 @@ def tinydb_find_similar_tags(query: str, limit: int = 5, min_similarity: float =
                 "similar_tags": [],
                 "message": "No tags found in database"
             }
+
+        # Generate embedding for query only if there are tags to compare against
+        query_embedding = _generate_embedding(query)
 
         similar_tags = []
 
