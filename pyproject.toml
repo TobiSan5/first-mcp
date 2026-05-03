@@ -28,6 +28,8 @@ dependencies = [
     "fastmcp>=3.2.4",
     "tinydb>=4.8.0",
     "requests>=2.31.0",
+    "google-genai==1.55.0",
+    "numpy>=2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -38,21 +40,6 @@ dev = [
     "flake8>=6.0.0",
     "mypy>=1.0.0",
 ]
-workspace = [
-    # Workspace extension for file management
-]
-weather = [
-    "requests>=2.31.0",
-]
-embeddings = [
-    "google-genai==1.55.0",
-    "numpy>=1.24.0",
-]
-all = [
-    "requests>=2.31.0",
-    "google-genai==1.55.0",
-    "numpy>=1.24.0",
-]
 
 [project.urls]
 Homepage = "https://github.com/TobiSan5/first-mcp"
@@ -61,13 +48,8 @@ Issues = "https://github.com/TobiSan5/first-mcp/issues"
 Documentation = "https://github.com/TobiSan5/first-mcp#readme"
 
 [project.scripts]
-# Main MCP server entry point
 first-mcp = "first_mcp.server:main"
-# Minimal test server for incremental diagnosis
 first-mcp-test = "first_mcp.server_test:main"
-# Legacy compatibility (same as main for now)
-first-mcp-legacy = "first_mcp.server:main"
-# Standalone tag enrichment runner — schedule externally, do not run inside the server
 first-mcp-enrich = "first_mcp.utilities.enrich_runner:main"
 
 [tool.setuptools.packages.find]
