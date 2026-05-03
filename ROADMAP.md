@@ -79,7 +79,29 @@ Date-based sorting and category browsing for memory retrieval:
 - `CLAUDE.md` testing section expanded with concrete patterns for each tier.
 - Tests: 10 new `TestDateSortKey` unit tests in `data_processing/test_memory_retrieval.py`; 7 new server-implementation tests covering `last_modified` priority, tag filter preservation under date sort, cross-page sort order, and category+sort combined.
 
-### v1.5.1 🗓 Planned
+### v1.5.1 ✅ Released (2026-05-03)
+Branch: `feature/lazy-imports-batch2`
+
+**Production stability — uv migration:**
+- Identified root cause of all previous Claude Desktop disconnects: degrading Conda
+  environment causing import times to exceed the MCP keepalive timeout.
+- Migrated production deployment to `uv run` with uv-managed Python 3.13 and
+  `--compile-bytecode`. All tools verified working in Claude Desktop.
+
+**`pyproject.toml` simplified:**
+- `google-genai==1.55.0` and `numpy>=2.0.0` promoted from optional extras to core
+  dependencies. Removed `workspace`, `weather`, `embeddings`, `all` extras.
+  Removed `first-mcp-legacy` entry point.
+
+**`server_test.py` — diagnostic server:**
+- `first-mcp-test` entry point added. Incremental FastMCP server (Batches 1–3)
+  built during the disconnect investigation. Retained as a minimal repro environment.
+
+**Lazy import fixes:**
+- `tag_scoring.py`: numpy deferred to first use.
+- `tag_tools.py` / `memory_tools.py`: embedding API calls deferred off the hot path.
+
+### v1.5.2 🗓 Planned
 
 **Remove max-tag ceiling from enrichment agent:**
 - The `MAX_TAGS_PER_MEMORY` cap (and `FIRST_MCP_MAX_TAGS` env var) will be removed.
@@ -87,20 +109,11 @@ Date-based sorting and category browsing for memory retrieval:
   the scoring formula (`Σ sim²`) only rewards tags that match the query, so a memory
   with many specific tags does not unfairly outscore memories with fewer tags.
 - `MIN_TAGS_PER_MEMORY` (floor of 2) and `FIRST_MCP_MIN_TAGS` are retained.
-- The prompt instruction capping additions at `MAX_TAGS_PER_MEMORY` is removed.
-  Guard against vague generic tags is handled by prompt instruction quality and the
-  category field (see below), not a numerical ceiling.
 
 **Category consolidation in enrichment agent:**
-- Enrich agent now also reviews and improves the memory's `category` field.
-- Before building the prompt, all distinct existing categories are fetched via
-  `tinydb_get_memory_categories()` and injected as a `EXISTING CATEGORIES` section.
+- Enrich agent also reviews and improves the memory's `category` field.
+- All distinct existing categories injected as `EXISTING CATEGORIES` in the prompt.
 - `MemoryTagPatch` schema gains `suggested_category: Optional[str] = None`.
-- Prompt instruction: prefer an existing category (consolidation); only suggest a new
-  name when no existing category is a reasonable fit; leave unchanged if already correct.
-- Apply-patches: if `suggested_category` is set and differs from current category,
-  update the `category` field in the same DB write. No guardrail needed (categories
-  are coarser than tags).
 - Effect: broad concepts find a home in the category field rather than as tags, keeping
   tags narrow and specific. Category taxonomy consolidates organically over time.
 - Update `src/first_mcp/prompts/tag_enrichment.md` with new instructions and
@@ -396,5 +409,5 @@ Create a thriving ecosystem of MCP servers that can be:
 ---
 
 **Maintained by**: Torbjørn Wikestad
-**Last Updated**: 2026-05-01
-**Next Review**: On v2.0 planning
+**Last Updated**: 2026-05-03
+**Next Review**: On v1.5.2 / v2.0 planning
