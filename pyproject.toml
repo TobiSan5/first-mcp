@@ -30,6 +30,7 @@ dependencies = [
     "requests>=2.31.0",
     "google-genai==1.55.0",
     "numpy>=2.0.0",
+    "sqlite-vec>=0.1.9",
 ]
 
 [project.optional-dependencies]
@@ -51,6 +52,7 @@ Documentation = "https://github.com/TobiSan5/first-mcp#readme"
 first-mcp = "first_mcp.server:main"
 first-mcp-test = "first_mcp.server_test:main"
 first-mcp-enrich = "first_mcp.utilities.enrich_runner:main"
+first-mcp-migrate = "first_mcp.storage.migrate:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
