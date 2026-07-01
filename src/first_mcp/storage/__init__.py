@@ -7,6 +7,7 @@ TinyDB, SQLite/sqlite-vec, local embedding models, and cloud AI APIs.
 """
 from .protocols import EmbeddingStrategy, StorageStrategy, MemoryRecord, TagRecord
 from .sqlite_storage import SQLiteStorageStrategy
+from .fast_embed_strategy import FastEmbedStrategy
 
 __all__ = [
     "EmbeddingStrategy",
@@ -14,4 +15,5 @@ __all__ = [
     "MemoryRecord",
     "TagRecord",
     "SQLiteStorageStrategy",
+    "FastEmbedStrategy",
 ]

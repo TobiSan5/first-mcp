@@ -31,6 +31,7 @@ dependencies = [
     "google-genai==1.55.0",
     "numpy>=2.0.0",
     "sqlite-vec>=0.1.9",
+    "fastembed>=0.8.0",
 ]
 
 [project.optional-dependencies]
@@ -53,6 +54,8 @@ first-mcp = "first_mcp.server:main"
 first-mcp-test = "first_mcp.server_test:main"
 first-mcp-enrich = "first_mcp.utilities.enrich_runner:main"
 first-mcp-migrate = "first_mcp.storage.migrate:main"
+first-mcp-reembed = "first_mcp.storage.reembed:main"
+first-mcp-memory = "first_mcp.server_v2:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

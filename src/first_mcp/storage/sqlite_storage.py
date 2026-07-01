@@ -357,6 +357,16 @@ class SQLiteStorageStrategy:
         scored.sort(key=lambda x: x[1])
         return scored[:top_k]
 
+    def increment_tag_usage(self, tag_names: list[str]) -> None:
+        """Increment usage_count by 1 for each named tag."""
+        with self._lock:
+            for name in tag_names:
+                self._conn.execute(
+                    "UPDATE tags SET usage_count = usage_count + 1 WHERE name = ?",
+                    (name,),
+                )
+            self._conn.commit()
+
     # --- Lifecycle ---
 
     def close(self) -> None:
