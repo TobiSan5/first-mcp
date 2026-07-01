@@ -101,7 +101,57 @@ Branch: `feature/lazy-imports-batch2`
 - `tag_scoring.py`: numpy deferred to first use.
 - `tag_tools.py` / `memory_tools.py`: embedding API calls deferred off the hot path.
 
-### v1.5.2 🗓 Planned
+### v1.6.0 ✅ Released (2026-07-01)
+Branch: `feature/sqlite-vec-storage-strategy`
+
+**Strategy-pattern storage and embedding layer:**
+- `src/first_mcp/storage/` — new subpackage with runtime-checkable Protocol classes
+  (`EmbeddingStrategy`, `StorageStrategy`) and dataclasses (`MemoryRecord`, `TagRecord`).
+  Concrete implementations satisfy the protocols without inheriting from them.
+
+**SQLiteStorageStrategy** (`storage/sqlite_storage.py`):
+- Full `StorageStrategy` implementation backed by SQLite + sqlite-vec.
+- Schema: `memories`, `tags` (with `old_embedding` / `new_embedding` BLOBs),
+  `tag_memory_links` junction table, `tag_new_vecs` vec0 virtual table (384-dim KNN).
+- Two-phase vector search: vec0 KNN on `new_embedding` (384-dim fastembed) with
+  numpy cosine fallback on `old_embedding` (3072-dim Gemini) during transition.
+- Thread-safe via `threading.Lock`; WAL journal mode; foreign keys enforced.
+
+**Migration** (`storage/migrate.py`, `first-mcp-migrate` entry point):
+- One-time migration from TinyDB JSON files to SQLite. Copies `old_embedding` blobs,
+  builds junction table from memory tag lists, inserts stubs for orphaned tags.
+- Production result: 547 memories, 2527 tags, 3858 links migrated.
+
+**FastEmbedStrategy** (`storage/fast_embed_strategy.py`):
+- Local ONNX embeddings via `fastembed` (BAAI/bge-small-en-v1.5, 384-dim).
+- No PyTorch dependency; model cached under `~/.cache/fastembed/` after first use.
+- Re-embedding entry point (`first-mcp-reembed`) populated all 2527 tags.
+
+**TaggingEngine** (`storage/tagging_engine.py`):
+- Sole owner of the tag table and `tag_memory_links` junction table.
+- Write-time: Gemini generates snake_case compound tags from content; each candidate
+  is embedded and checked against vec0 — near-duplicates (distance < 0.25) reuse
+  the existing tag name instead of creating a new one. Usage counts are maintained
+  accurately across memorize / update / forget operations.
+- Query-time: natural language queries are embedded directly by fastembed (no LLM
+  extraction); KNN on vec0 followed by junction table traversal; Σsim² scoring.
+- Compound snake_case tags are a deliberate design choice: both LLMs and embedding
+  models handle them well, and a single tag like `sermon_on_humility` scores near
+  both `humility` and `sermon` in vector space.
+
+**server_v2.py** (`first-mcp-memory` entry point — parallel, not replacing main server):
+- 6 tools prefixed `first_mcp_` to reduce Claude Desktop tool confusion:
+  `first_mcp_memorize`, `first_mcp_search`, `first_mcp_list`, `first_mcp_recall`,
+  `first_mcp_update`, `first_mcp_forget`.
+- All tagging is server-side; clients provide only content, category, importance.
+- Content updates automatically retag the memory via the engine.
+
+**Development environment:**
+- Migrated from conda `fast-mcp` env to `uv`. `.env` file (git-ignored) holds all
+  env vars previously stored in conda. `UV_ENV_FILE=.env` set in shell profile.
+  Python 3.13 pinned via `.python-version`.
+
+### v1.5.2 ⏭ Deferred to v1.7.0
 
 **Remove max-tag ceiling from enrichment agent:**
 - The `MAX_TAGS_PER_MEMORY` cap (and `FIRST_MCP_MAX_TAGS` env var) will be removed.
