@@ -367,6 +367,33 @@ class SQLiteStorageStrategy:
                 )
             self._conn.commit()
 
+    def decrement_tag_usage(self, tag_names: list[str]) -> None:
+        """Decrement usage_count by 1 (floor 0) for each named tag."""
+        with self._lock:
+            for name in tag_names:
+                self._conn.execute(
+                    "UPDATE tags SET usage_count = MAX(0, usage_count - 1) WHERE name = ?",
+                    (name,),
+                )
+            self._conn.commit()
+
+    def unlink_all_tags_from_memory(self, memory_id: str) -> list[str]:
+        """
+        Remove all junction-table rows for a memory.
+        Returns the tag names that were unlinked (for usage-count adjustment).
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT tag_name FROM tag_memory_links WHERE memory_id = ?",
+                (memory_id,),
+            ).fetchall()
+            tag_names = [r["tag_name"] for r in rows]
+            self._conn.execute(
+                "DELETE FROM tag_memory_links WHERE memory_id = ?", (memory_id,)
+            )
+            self._conn.commit()
+        return tag_names
+
     # --- Lifecycle ---
 
     def close(self) -> None:

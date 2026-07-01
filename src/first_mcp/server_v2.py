@@ -107,7 +107,6 @@ def first_mcp_memorize(
         category: Optional category label (e.g. 'project', 'personal').
         importance: Priority 1–5, default 3.
     """
-    tags = _get_engine().generate_tags(content)
     memory_id = str(uuid.uuid4())
     now = _now()
     memory = MemoryRecord(
@@ -117,9 +116,9 @@ def first_mcp_memorize(
         importance=importance,
         timestamp=now,
         last_modified=now,
-        tags=tags,
     )
     _get_storage().store_memory(memory)
+    tags = _get_engine().tag_memory(memory_id, content)
     return _ts({"success": True, "memory_id": memory_id, "tags": tags})
 
 
@@ -197,6 +196,7 @@ def first_mcp_update(
 ) -> Dict[str, Any]:
     """
     Update one or more fields of an existing memory.
+    When content changes, tags are regenerated automatically.
 
     Args:
         memory_id: The UUID of the memory to update.
@@ -219,7 +219,10 @@ def first_mcp_update(
     if not ok:
         return _ts({"success": False, "error": f"Memory '{memory_id}' not found"})
 
-    return _ts({"success": True, "memory_id": memory_id, "updated_fields": list(updates.keys())})
+    result: Dict[str, Any] = {"success": True, "memory_id": memory_id, "updated_fields": list(updates.keys())}
+    if content:
+        result["tags"] = _get_engine().tag_memory(memory_id, content)
+    return _ts(result)
 
 
 @mcp.tool()
@@ -230,6 +233,7 @@ def first_mcp_forget(memory_id: str) -> Dict[str, Any]:
     Args:
         memory_id: The UUID of the memory to delete.
     """
+    _get_engine().untag_memory(memory_id)  # decrement usage counts before delete
     ok = _get_storage().delete_memory(memory_id)
     if not ok:
         return _ts({"success": False, "error": f"Memory '{memory_id}' not found"})
