@@ -13,10 +13,14 @@ Responsibilities:
 
 Write-time flow (tag_memory):
   1. Gemini generates snake_case compound tag candidates from memory content.
-  2. Each candidate is embedded by fastembed and looked up in the vec0 index.
-     If a near-identical tag exists (distance < threshold) the existing name is
-     reused; otherwise a new tag record with its embedding is registered.
-  3. The junction table is updated: old links for the memory are removed (and
+  2. The content itself is embedded and a vec0 search surfaces existing tags
+     that are semantically close — these are added as candidates alongside
+     Gemini's output (ADD EXISTING behaviour).
+  3. Every candidate is resolved against the vec0 index: if the nearest
+     existing tag is within _DEDUP_DISTANCE_THRESHOLD (default cosine ~0.85),
+     the existing tag is used instead. Existing tags are always preferred over
+     new ones. Only candidates with no close match are registered as new tags.
+  4. The junction table is updated: old links for the memory are removed (and
      their usage counts decremented), new links are inserted (and incremented).
 
 Query-time flow (search_memories):
@@ -38,8 +42,16 @@ _PROMPTS_DIR = pathlib.Path(__file__).parent.parent / "prompts"
 _TAGGING_MODEL = os.getenv("FIRST_MCP_TAGGING_MODEL", "gemini-2.5-flash")
 
 # L2 distance on normalised vectors ≈ sqrt(2*(1−cosine_sim)).
-# 0.25 ≈ cosine similarity ~0.97 — only near-exact variants are merged.
-_DEDUP_DISTANCE_THRESHOLD = 0.25
+# 0.55 ≈ cosine similarity ~0.85 — existing tags are preferred over new ones
+# whenever they're "close enough". Matches the enrichment agent's replacement
+# threshold. Tunable via FIRST_MCP_TAGGING_DEDUP_THRESHOLD.
+_DEDUP_DISTANCE_THRESHOLD = float(
+    os.getenv("FIRST_MCP_TAGGING_DEDUP_THRESHOLD", "0.55")
+)
+
+# How many existing tags to surface from a content-level vec0 search and pass
+# to _resolve_candidates alongside Gemini's output (ADD EXISTING behaviour).
+_CONTENT_SEARCH_TOP_K = int(os.getenv("FIRST_MCP_TAGGING_CONTENT_TOP_K", "15"))
 
 
 def _to_snake_case(tag: str) -> str:
@@ -49,6 +61,14 @@ def _to_snake_case(tag: str) -> str:
     tag = re.sub(r"[^a-z0-9_]", "", tag)
     tag = re.sub(r"_+", "_", tag).strip("_")
     return tag
+
+
+_SNAKE_CASE_RE = re.compile(r"^[a-z][a-z0-9]*(_[a-z0-9]+)*$")
+
+
+def _is_valid_tag(tag: str) -> bool:
+    """Return True only for well-formed snake_case tags."""
+    return bool(tag and _SNAKE_CASE_RE.match(tag))
 
 
 class TaggingEngine:
@@ -149,10 +169,44 @@ class TaggingEngine:
 
     def _generate_and_register(self, content: str) -> list[str]:
         """
-        Gemini → candidate tags → embed → dedup via vec0 → register new tags.
-        Returns the final deduplicated list of tag names (no junction updates).
+        Produce the final tag list for a piece of content.
+
+        Two sources feed into _resolve_candidates:
+          1. Gemini's suggested tags (LLM generation)
+          2. Top existing tags from a content-level vec0 search (ADD EXISTING)
+
+        _resolve_candidates maps every candidate to an existing tag when one
+        is within _DEDUP_DISTANCE_THRESHOLD; otherwise it registers the
+        candidate as a new tag. Existing tags are always preferred over new ones.
         """
-        candidates = self._llm_generate(content)
+        llm_candidates = self._llm_generate(content)
+
+        # Content-level vec0 search: find existing tags already close to this
+        # content so they can be included even if Gemini didn't suggest them.
+        content_vec = self._embedder.embed([content])[0]
+        existing_hits: list[str] = []
+        if content_vec is not None:
+            hits = self._storage.search_by_vector(content_vec, top_k=_CONTENT_SEARCH_TOP_K)
+            existing_hits = [
+                name for name, dist in hits
+                if dist < _DEDUP_DISTANCE_THRESHOLD and _is_valid_tag(name)
+            ]
+
+        # Merge: LLM candidates first (they carry semantic intent), then any
+        # existing tags surfaced by the content search not already covered.
+        all_candidates = llm_candidates + [t for t in existing_hits if t not in llm_candidates]
+
+        return self._resolve_candidates(all_candidates)
+
+    def _resolve_candidates(self, candidates: list[str]) -> list[str]:
+        """
+        For each candidate string, resolve to an existing tag or register a new one.
+
+        Existing tags are preferred: if the nearest vec0 neighbour of a candidate
+        is within _DEDUP_DISTANCE_THRESHOLD, the existing tag name is used instead.
+        Truly new tags are embedded and upserted with usage_count=0 (the caller
+        increments after linking to a memory).
+        """
         if not candidates:
             return []
 
@@ -164,10 +218,8 @@ class TaggingEngine:
                 continue
             nearest = self._storage.search_by_vector(vec, top_k=1)
             if nearest and nearest[0][1] < _DEDUP_DISTANCE_THRESHOLD:
-                final_tags.append(nearest[0][0])  # reuse existing tag name
+                final_tags.append(nearest[0][0])  # prefer existing tag
             else:
-                # Register the new tag with its embedding; usage starts at 0
-                # (caller increments after linking)
                 self._storage.upsert_tag(
                     TagRecord(
                         name=candidate,
