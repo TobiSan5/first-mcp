@@ -151,23 +151,62 @@ Branch: `feature/sqlite-vec-storage-strategy`
   env vars previously stored in conda. `UV_ENV_FILE=.env` set in shell profile.
   Python 3.13 pinned via `.python-version`.
 
-### v1.5.2 ⏭ Deferred to v1.7.0
+### v1.5.2 ⛔ Superseded — enrichment agent retired in v1.6.0
 
-**Remove max-tag ceiling from enrichment agent:**
-- The `MAX_TAGS_PER_MEMORY` cap (and `FIRST_MCP_MAX_TAGS` env var) will be removed.
-  Rich tagging with proper nouns and narrow concepts is desirable for retrieval quality;
-  the scoring formula (`Σ sim²`) only rewards tags that match the query, so a memory
-  with many specific tags does not unfairly outscore memories with fewer tags.
-- `MIN_TAGS_PER_MEMORY` (floor of 2) and `FIRST_MCP_MIN_TAGS` are retained.
+The planned enrichment agent improvements (tag ceiling removal, category
+consolidation) are no longer relevant. The `TaggingEngine` introduced in v1.6.0
+handles tag quality at write-time with compound snake_case tags and vec0 dedup,
+making retroactive enrichment redundant. The enrichment agent (`tag_enrichment.py`,
+`enrich_runner.py`) remains in the codebase but is no longer active.
 
-**Category consolidation in enrichment agent:**
-- Enrich agent also reviews and improves the memory's `category` field.
-- All distinct existing categories injected as `EXISTING CATEGORIES` in the prompt.
-- `MemoryTagPatch` schema gains `suggested_category: Optional[str] = None`.
-- Effect: broad concepts find a home in the category field rather than as tags, keeping
-  tags narrow and specific. Category taxonomy consolidates organically over time.
-- Update `src/first_mcp/prompts/tag_enrichment.md` with new instructions and
-  `{categories}` placeholder.
+## Version 2.0 🗓 Planned
+
+**Target**: Next feature branch — `feature/v2.0.0`
+
+Retiring the TinyDB backend marks the v2.0 milestone. v1.6.0 established the
+new architecture; v2.0.0 completes the memory tool surface, adds the maintenance
+CLI, and aligns the package for PyPI distribution.
+
+### Memory tool completions
+
+**`first_mcp_categories`** — list all distinct categories with memory counts,
+sorted by count descending. A basic browsing affordance expected by clients.
+
+**`first_mcp_deprecate(memory_id)`** — sets `importance = 0`. Deprecated memories
+are excluded from `first_mcp_search` and `first_mcp_list` by default. Both tools
+gain an `include_deprecated: bool = False` parameter to opt in. `first_mcp_recall`
+always returns a memory regardless of importance level.
+
+**Improved search scoring** — current formula is `Σ sim²` over matched tags.
+v2.0.0 adds importance and recency weights:
+`score = Σ sim² + w_i × importance + w_r × recency`
+where recency is derived from `last_modified`. Weights to be calibrated against
+real retrieval behaviour.
+
+### Codebase cleanup
+
+- Retire `server_impl.py` (TinyDB server) and its associated `memory/` business
+  layer from active use. Code may remain for reference but entry point `first-mcp`
+  in `pyproject.toml` should point to `server_v2:main`.
+- Backfill `timestamp` for the 435 migrated memories where it is empty
+  (`UPDATE memories SET timestamp = last_modified WHERE timestamp = ''`).
+- Retag migrated memories through the new tagging engine to replace TinyDB-era
+  tags (some hyphenated, some Norwegian) with compound snake_case vocabulary.
+
+### CLI entry point (`first-mcp-query`)
+
+Lightweight direct-SQLite interface, no server required. Two purposes:
+
+**Inspection**: search, list, tag browsing without starting the MCP server.
+**Maintenance**: commands that would be unsafe to run concurrently with the server
+  (timestamp backfill, retag pass, tag deduplication, database integrity checks).
+  Invoked manually when the server is idle — avoids SQLite write-lock conflicts.
+
+### Distribution
+
+- PyPI alignment: review package metadata, classifiers, README.
+- Confirm `pyproject.toml` entry points match the v2.0 tool surface.
+- GitHub Actions release workflow (stretch goal).
 
 ### v1.5.0 ✅ Released (2026-05-01)
 Branch: `feature/v1.4.2-assistant`
