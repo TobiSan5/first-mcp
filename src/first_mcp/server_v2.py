@@ -21,7 +21,8 @@ from fastmcp import FastMCP
 from .storage.protocols import MemoryRecord
 from .storage.sqlite_storage import SQLiteStorageStrategy
 from .storage.fast_embed_strategy import FastEmbedStrategy
-from .storage.tagging_engine import TaggingEngine
+from .storage.tagging_engine import TaggingEngine, TaggingResult
+from .storage.tag_suggesters import get_tag_suggester_from_env
 
 
 # ---------------------------------------------------------------------------
@@ -51,7 +52,9 @@ def _get_embedder() -> FastEmbedStrategy:
 def _get_engine() -> TaggingEngine:
     global _engine_instance
     if _engine_instance is None:
-        _engine_instance = TaggingEngine(_get_storage(), _get_embedder())
+        _engine_instance = TaggingEngine(
+            _get_storage(), _get_embedder(), suggester=get_tag_suggester_from_env()
+        )
     return _engine_instance
 
 
@@ -72,6 +75,13 @@ def _ts(response: Dict[str, Any]) -> Dict[str, Any]:
     except (AttributeError, IndexError):
         response["server_timezone"] = "local"
     return response
+
+
+def _tagging_fields(result: TaggingResult) -> Dict[str, Any]:
+    out: Dict[str, Any] = {"tags": result.tags, "tag_resolution": result.resolution}
+    if result.warnings:
+        out["warnings"] = result.warnings
+    return out
 
 
 def _memory_dict(mem: MemoryRecord) -> Dict[str, Any]:
@@ -96,14 +106,18 @@ mcp = FastMCP(name="First MCP Memory Server")
 @mcp.tool()
 def first_mcp_memorize(
     content: str,
+    tags: list[str] | str | None = None,
     category: str = "",
     importance: int = 3,
 ) -> Dict[str, Any]:
     """
-    Store a memory with automatic tag generation.
+    Store a memory. Search finds memories through their tags, so supply tags.
 
     Args:
         content: The memory content to store.
+        tags: 2-6 short snake_case topic tags (list or comma-separated). Each is
+            matched semantically against existing tags and replaced by an existing
+            one when close; see tag_resolution in the response.
         category: Optional category label (e.g. 'project', 'personal').
         importance: Priority 1–5, default 3.
     """
@@ -118,8 +132,8 @@ def first_mcp_memorize(
         last_modified=now,
     )
     _get_storage().store_memory(memory)
-    tags = _get_engine().tag_memory(memory_id, content)
-    return _ts({"success": True, "memory_id": memory_id, "tags": tags})
+    result = _get_engine().tag_memory(memory_id, content, suggested_tags=tags)
+    return _ts({"success": True, "memory_id": memory_id, **_tagging_fields(result)})
 
 
 @mcp.tool()
@@ -191,16 +205,18 @@ def first_mcp_recall(memory_id: str) -> Dict[str, Any]:
 def first_mcp_update(
     memory_id: str,
     content: str = "",
+    tags: list[str] | str | None = None,
     category: str = "",
     importance: int = 0,
 ) -> Dict[str, Any]:
     """
     Update one or more fields of an existing memory.
-    When content changes, tags are regenerated automatically.
+    Tags are replaced only when tags are given; otherwise they are kept.
 
     Args:
         memory_id: The UUID of the memory to update.
         content: New content (omit to leave unchanged).
+        tags: New tag set, replacing the old one (omit to keep current tags).
         category: New category (omit to leave unchanged).
         importance: New importance 1–5 (omit or 0 to leave unchanged).
     """
@@ -212,7 +228,7 @@ def first_mcp_update(
     if importance:
         updates["importance"] = importance
 
-    if len(updates) == 1:
+    if len(updates) == 1 and not tags:
         return _ts({"success": False, "error": "No fields provided to update"})
 
     ok = _get_storage().update_memory(memory_id, updates)
@@ -220,8 +236,10 @@ def first_mcp_update(
         return _ts({"success": False, "error": f"Memory '{memory_id}' not found"})
 
     result: Dict[str, Any] = {"success": True, "memory_id": memory_id, "updated_fields": list(updates.keys())}
-    if content:
-        result["tags"] = _get_engine().tag_memory(memory_id, content)
+    tagging = _get_engine().retag_on_update(memory_id, content or None, tags)
+    if tagging is not None:
+        result["updated_fields"].append("tags")
+        result.update(_tagging_fields(tagging))
     return _ts(result)
 
 

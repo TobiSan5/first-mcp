@@ -72,6 +72,27 @@ class EmbeddingStrategy(Protocol):
 
 
 @runtime_checkable
+class TagSuggester(Protocol):
+    """
+    Optional server-side source of tag candidates for a piece of content.
+
+    The memory system works without one: the client suggests tags and the
+    tagging engine matches them against existing vocabulary with local
+    embeddings. A suggester (an LLM of any vendor, or a local model) only adds
+    extra candidates; its output goes through the same dedup path.
+    """
+
+    @property
+    def name(self) -> str:
+        """Short identifier, e.g. 'gemini:gemini-2.5-flash'."""
+        ...
+
+    def suggest(self, content: str) -> list[str]:
+        """Return raw tag candidates (normalised by the caller). May raise."""
+        ...
+
+
+@runtime_checkable
 class StorageStrategy(Protocol):
     """Persists and retrieves memories and tags."""
 

@@ -28,13 +28,17 @@ dependencies = [
     "fastmcp>=3.2.4",
     "tinydb>=4.8.0",
     "requests>=2.31.0",
-    "google-genai==1.55.0",
     "numpy>=2.0.0",
     "sqlite-vec>=0.1.9",
     "fastembed>=0.8.0",
 ]
 
 [project.optional-dependencies]
+# Optional Google Gemini support: legacy v1 embedding tools and the opt-in
+# FIRST_MCP_TAG_SUGGESTER=gemini tag suggester for the v2 memory server.
+gemini = [
+    "google-genai==1.55.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",

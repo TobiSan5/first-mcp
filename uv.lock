@@ -530,7 +530,6 @@ source = { editable = "." }
 dependencies = [
     { name = "fastembed" },
     { name = "fastmcp" },
-    { name = "google-genai" },
     { name = "numpy" },
     { name = "requests" },
     { name = "sqlite-vec" },
@@ -545,6 +544,9 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
 ]
+gemini = [
+    { name = "google-genai" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -552,7 +554,7 @@ requires-dist = [
     { name = "fastembed", specifier = ">=0.8.0" },
     { name = "fastmcp", specifier = ">=3.2.4" },
     { name = "flake8", marker = "extra == 'dev'", specifier = ">=6.0.0" },
-    { name = "google-genai", specifier = "==1.55.0" },
+    { name = "google-genai", marker = "extra == 'gemini'", specifier = "==1.55.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "numpy", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
@@ -561,7 +563,7 @@ requires-dist = [
     { name = "sqlite-vec", specifier = ">=0.1.9" },
     { name = "tinydb", specifier = ">=4.8.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["gemini", "dev"]
 
 [[package]]
 name = "flake8"

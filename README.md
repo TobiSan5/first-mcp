@@ -22,7 +22,15 @@ pip install git+https://github.com/TobiSan5/first-mcp.git
 
 # Or clone and install locally
 git clone https://github.com/TobiSan5/first-mcp.git && cd first-mcp && pip install -e .
+
+# Optional: Google Gemini support (legacy embedding tools, opt-in tag suggester)
+pip install "first-mcp[gemini] @ git+https://github.com/TobiSan5/first-mcp.git"
 ```
+
+The v2 memory server (`first-mcp-memory`) needs no API key or LLM: embeddings
+run locally (fastembed, model downloaded once on first use), the client
+suggests tags, and the server maps them onto existing tags by semantic
+similarity.
 
 ### Essential Setup
 
@@ -155,9 +163,12 @@ This server works with any **Model Context Protocol (MCP)** compatible applicati
 ## 🔧 Environment Variables (Optional)
 
 ```bash
-# API Keys (for weather functionality)
+# API Keys (weather; GOOGLE_API_KEY only for the optional Gemini features)
 export OPENWEATHERMAPORG_API_KEY="your_key_here"  
 export GOOGLE_API_KEY="your_key_here"
+
+# v2 memory server: optional server-side tag suggester (default: none)
+export FIRST_MCP_TAG_SUGGESTER="gemini"   # requires first-mcp[gemini] + GOOGLE_API_KEY
 
 # Data Storage (defaults to current directory if not set)
 export FIRST_MCP_DATA_PATH="/custom/data/path"
