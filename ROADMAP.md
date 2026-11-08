@@ -163,25 +163,159 @@ making retroactive enrichment redundant. The enrichment agent (`tag_enrichment.p
 
 **Target**: Next feature branch — `feature/v2.0.0`
 
-Retiring the TinyDB backend marks the v2.0 milestone. v1.6.0 established the
-new architecture; v2.0.0 completes the memory tool surface, adds the maintenance
-CLI, and aligns the package for PyPI distribution.
+Retiring the TinyDB backend marked the v1.6.0 milestone. v2.0.0 completes the
+memory tool surface, closing contract gaps surfaced by an external
+client-experience review (Fable 5, acting as an LLM client of the server —
+session recorded in `_developer_notes/v2_scope_planning_20260709.md`), and
+adds the maintenance CLI.
 
-### Memory tool completions
+Design principle for this version: improve the existing semantic-tag-based
+memory concept as it stands. Changes that would require redesigning the
+write/read contract (field-level patch semantics, revision/etag concurrency,
+content-level embeddings, dedup-on-write, semantic exclusion) are deliberately
+deferred — see the Backlog section below.
 
-**`first_mcp_categories`** — list all distinct categories with memory counts,
-sorted by count descending. A basic browsing affordance expected by clients.
+### Categories: a governed, required vocabulary
 
-**`first_mcp_deprecate(memory_id)`** — sets `importance = 0`. Deprecated memories
-are excluded from `first_mcp_search` and `first_mcp_list` by default. Both tools
-gain an `include_deprecated: bool = False` parameter to opt in. `first_mcp_recall`
-always returns a memory regardless of importance level.
+**Reverses the earlier "Categories eliminated — folded into tags" decision
+(2026-07-09).** That plan relied on one broad tag per memory converging via
+embedding dedup. Two findings undercut it (2026-11-08):
+
+- With the LLM made optional (see "LLM made optional" below), nothing
+  server-side generates the broad tag any more.
+- Broad clustering is where local embeddings are weakest. A test assigning 16
+  synthetic memories to 6 broad categories by nearest category description
+  (bge-small) got 13/16 right; all misses were abstraction-level judgments
+  ("My wife likes jazz" → home, "I prefer Norwegian for church matters" →
+  theology), with top-1/top-2 margins of 0.02–0.04 — no usable confidence
+  signal. Broad tags would converge (or fail to) on exactly this weakness.
+
+The production drift (`personal` / `personal_relationship` / `user_context`)
+came from categories being free text, not from being a separate field. The
+fix is governance, not removal. The client (itself an LLM) makes the
+categorisation judgment; the server enforces a small, deliberate vocabulary.
+
+- **`categories` table** — name (snake_case, unique), description, embedding
+  (local fastembed), created_at. Memory count derived from `memories`.
+- **Required on save** — `first_mcp_memorize` requires `category`. Resolution:
+  exact match (after snake_case normalisation) → close-match replacement via
+  embedding KNN, same mechanism as tags (lets a client guess without listing
+  first, e.g. `personal_life` → `personal`) → otherwise **rejected**, with an
+  error listing the valid categories. Never auto-created. The response
+  reports `category_resolution` (suggested → applied, `matched_existing`), like
+  `tag_resolution`. `first_mcp_update` validates a changed category the same way.
+- **Optional on retrieval** — `first_mcp_search` and `first_mcp_list` accept
+  an optional `category` as a hard filter to narrow results when needed. Same
+  resolution path; an unresolvable value returns an error with the list
+  rather than an empty result.
+- **`first_mcp_categories()`** — server-side list: name, description, memory
+  count.
+- **`first_mcp_add_category(name, description)`** — deliberate, client-callable
+  creation. Description is required (it is what the client reads to choose).
+  Rejected if the name close-matches an existing category; the response names
+  the match so the client can use it instead.
+- **Maintenance CLI** (`first-mcp-query`) — rename, merge, delete categories;
+  never exposed as MCP tools.
+
+Decisions (2026-11-08):
+- **Initial vocabulary: none.** A fresh install starts with zero categories,
+  so the vocabulary is shaped by the user from the start (a preset could get
+  in the way of, e.g., separating work from private matters early on).
+  Consequence: `first_mcp_memorize` cannot succeed until a category exists,
+  so its "no valid category" error must say so explicitly and point the
+  client to `first_mcp_add_category`.
+- **Match threshold: cosine > 0.90** (≡ L2 distance < 0.447 on unit vectors),
+  stricter than the tag threshold, in its own setting
+  (`FIRST_MCP_CATEGORY_MATCH_THRESHOLD`).
+- **Migration: file-based map.** The CLI takes an optional mapping file
+  (legacy value → canonical category, plus descriptions for the canonical
+  set). Without one, it lists distinct legacy values with counts so the map
+  can be written.
+- **`first_mcp_add_category` gets `force: bool = False`.** A close-match
+  rejection names the near match; the client may re-call with `force=True`
+  when it judges the categories genuinely distinct. The LLM is a better judge
+  of a near-match than the small embedding model.
+
+Still open:
+- Whether a category guess is matched against name embeddings only, or
+  name + description.
+- What legacy memories with no category get during migration (a default such
+  as `uncategorized`, or required in the map).
+
+### Deprecation with explicit lifecycle fields
+
+Production data shows memories manually prefixed `OUTDATED —` in content with
+importance dropped to 1 — a client inventing lifecycle metadata in prose
+because the schema has nowhere to put it. Replaces the `importance = 0` hack:
+
+- **`status`** column (`active` / `deprecated`) added to `memories`.
+- **`superseded_by`** column (nullable memory_id) links a deprecated memory to
+  its replacement.
+- **`first_mcp_deprecate(memory_id, superseded_by=None)`** — sets `status`.
+  Deprecated memories excluded from `first_mcp_search` / `first_mcp_list` by
+  default; both gain `include_deprecated: bool = False`. `first_mcp_recall`
+  always returns a memory regardless of status.
+
+### Pinned memories
+
+Replaces the "session-start" magic-string convention (works only because
+existing memories happen to match that query semantically — fragile, not a
+contract). Adds a **`pinned: bool`** field and an explicit boot-context
+retrieval affordance so cold-start context is deterministic regardless of
+tag-vocabulary drift.
+
+### Soft-delete for `first_mcp_forget`
+
+Hard delete is unforgiving for a tool mostly invoked by an LLM client that can
+misfire with full confidence. `first_mcp_forget` becomes a soft delete
+(excluded from search/list by default); **`first_mcp_restore(memory_id)`**
+added to undo. Permanent purge (if ever needed) is a CLI maintenance command,
+not automatic — consistent with the maintenance-belongs-in-the-CLI decision
+below.
+
+### `replace_text` partial update mode
+
+`first_mcp_update` currently requires a full-document replace, which pushes a
+client into regenerating and resending an entire memory to change one fact —
+burning tokens and inviting transcription drift on each rewrite. Adds an
+anchor-based partial mode (same shape as the existing
+`workspace_edit_textfile`) as a lightweight alternative to full replace. A
+general field-level patch mechanism with revision/etag concurrency is a bigger
+redesign — deferred to the backlog.
+
+### Search: scoring exposure and deterministic filters
 
 **Improved search scoring** — current formula is `Σ sim²` over matched tags.
 v2.0.0 adds importance and recency weights:
 `score = Σ sim² + w_i × importance + w_r × recency`
 where recency is derived from `last_modified`. Weights to be calibrated against
-real retrieval behaviour.
+real retrieval behaviour. The per-result score is returned to the client —
+today's response gives no way to distinguish a confident hit from a desperate
+one.
+
+**Deterministic tag filters** — `exclude_tags: list[str]` (exact tag-name
+match via the junction table) added to `first_mcp_search`. `include_tags` was
+considered and rejected: it's redundant with the semantic query itself (which
+already surfaces relevant memories without requiring exact vocabulary
+agreement) and would reintroduce the exact-match fragility tags were built to
+avoid. Exclusion is different in kind, not degree — embedding models have no
+mechanism for negation, so "search for X but not Y" can't be expressed by
+adjusting the query text; it needs a separate deterministic filter. A fuzzy
+`exclude_query` (embedded, distance-based) was also considered and deferred to
+the backlog as too volatile for this version.
+
+`importance` threshold and date-range filters also added to
+`first_mcp_search` — existing fields, no new mechanism required.
+
+### Documentation hardening (non-negotiable)
+
+An LLM client only knows what the tool schema and description say — anything
+undocumented gets guessed. Tool docstrings/Args updated to state explicitly:
+importance scale semantics, content size limits, all search filter parameters,
+and the `first_mcp_list` truncation contract (`content_preview` field name,
+`truncated: bool`, `content_length`, replacing today's silent ~200-char cut).
+`sort_by` (actual key used) and `total` (vs. page count) exposed in list/search
+responses.
 
 ### Codebase cleanup
 
@@ -192,6 +326,8 @@ real retrieval behaviour.
   (`UPDATE memories SET timestamp = last_modified WHERE timestamp = ''`).
 - Retag migrated memories through the new tagging engine to replace TinyDB-era
   tags (some hyphenated, some Norwegian) with compound snake_case vocabulary.
+  Legacy category values are consolidated separately (see "Categories: a
+  governed, required vocabulary" above), not folded into tags.
 
 ### CLI entry point (`first-mcp-query`)
 
@@ -199,14 +335,80 @@ Lightweight direct-SQLite interface, no server required. Two purposes:
 
 **Inspection**: search, list, tag browsing without starting the MCP server.
 **Maintenance**: commands that would be unsafe to run concurrently with the server
-  (timestamp backfill, retag pass, tag deduplication, database integrity checks).
-  Invoked manually when the server is idle — avoids SQLite write-lock conflicts.
+  (timestamp backfill, retag pass, tag deduplication, database integrity checks,
+  soft-delete purge). Invoked manually when the server is idle — avoids SQLite
+  write-lock conflicts.
+
+### LLM made optional — client-suggested tags (branch `feature/optional-llm-tagging`)
+
+The v2 server no longer requires Gemini (or any LLM). Retrieval was already
+LLM-free; write-time tagging now is too:
+
+- `first_mcp_memorize` / `first_mcp_update` accept `tags` from the client.
+  Each is normalised to snake_case and resolved against existing tags via
+  local fastembed KNN — existing tags are preferred when close. The response
+  includes `tag_resolution` (suggested → applied, `matched_existing`, source)
+  and `warnings` (e.g. no tags applied → memory unsearchable).
+- `first_mcp_update` keeps existing tags unless `tags` is given (reduces the
+  tag drift flagged in the client review). With a suggester configured,
+  content changes still regenerate tags.
+- Server-side suggestion is pluggable via a `TagSuggester` protocol
+  (`storage/tag_suggesters.py`), selected by `FIRST_MCP_TAG_SUGGESTER`
+  (default `none`; `gemini` available). Suggester failures never block a write.
+- `google-genai` moved to the optional `gemini` extra.
+- Removing the server-side LLM is what made broad-tag category folding
+  unworkable; categories are now a governed vocabulary (see above).
+- **Open: dedup threshold calibration.** 0.55 is an L2 distance ≡ cosine
+  0.85. With bge-small on short tag strings that merges distinct concepts
+  (`python_programming`/`javascript_programming` cos 0.865,
+  `home_alarm`/`fire_alarm` 0.870). Now that client tags are primary, a false
+  merge overrides the client's explicit choice — calibrate against production
+  tags before release.
 
 ### Distribution
 
 - PyPI alignment: review package metadata, classifiers, README.
 - Confirm `pyproject.toml` entry points match the v2.0 tool surface.
 - GitHub Actions release workflow (stretch goal).
+
+### Explicitly considered and declined
+
+- **Timestamp format change** (ISO 8601 with offset/UTC, IANA zone name instead
+  of the localized `"Vest-Europa (sommertid)"` string) — flagged by the review
+  but judged not worth the churn.
+
+## Backlog — under consideration, not scheduled
+
+Features that are architecturally significant, depend on groundwork this
+version doesn't build, or are too volatile to implement well yet. Revisit
+once v2.0.0 ships and the tag and category usage patterns have real
+production data behind them.
+
+- **Vendor-agnostic LLM features** — further `TagSuggester` (and later other
+  LLM-assisted) implementations behind the same protocol: an
+  OpenAI-compatible chat endpoint would cover hosted vendors and local models
+  (Ollama, llama.cpp server, LM Studio) with one adapter. Always opt-in; the
+  core memory server must keep working with no LLM.
+
+- **Content-level embeddings** — embed memory content directly (today only
+  tags are embedded; retrieval goes through the tag/junction table). Would
+  likely improve recall for content whose meaning isn't well captured by its
+  tag set, but needs its own design pass on how it composes with the existing
+  tag-based scoring path.
+- **Dedup-on-write** ("this looks like memory X — update instead?" at
+  memorize time) — depends on content-level embeddings above. Tag-based
+  similarity is too weak a signal: two memories on the same topic can get
+  different tag sets across writes (observed in the review — `verisure` vs
+  `verisure_debt` across four writes to one memory), and two unrelated
+  memories can share tags from vocabulary overlap alone.
+- **Semantic `exclude_query`** — fuzzy, distance-based negative filtering as
+  opposed to the deterministic `exclude_tags` shipped in v2.0.0. Same
+  volatility class as dedup-on-write: "how semantically close counts as
+  excluded" is hard to document and easy for a client to get surprised by.
+- **Generalized field-level patch + revision/etag concurrency** — v2.0.0 ships
+  a lightweight `replace_text` anchor mode; a full patch contract with
+  optimistic-concurrency protection (so a client can detect it's overwriting
+  something it hasn't seen) is a bigger redesign for a later version.
 
 ### v1.5.0 ✅ Released (2026-05-01)
 Branch: `feature/v1.4.2-assistant`
@@ -498,5 +700,5 @@ Create a thriving ecosystem of MCP servers that can be:
 ---
 
 **Maintained by**: Torbjørn Wikestad
-**Last Updated**: 2026-05-03
-**Next Review**: On v1.5.2 / v2.0 planning
+**Last Updated**: 2026-07-09
+**Next Review**: On v2.0.0 branch kickoff (implementation planning)
