@@ -151,6 +151,24 @@ Branch: `feature/sqlite-vec-storage-strategy`
   env vars previously stored in conda. `UV_ENV_FILE=.env` set in shell profile.
   Python 3.13 pinned via `.python-version`.
 
+### v1.7.0 ✅ Released (2026-11-09)
+Branch: `feature/optional-llm-tagging`
+
+**LLM made optional in the v2 memory server (`first-mcp-memory`):**
+- `first_mcp_memorize` / `first_mcp_update` accept client-suggested `tags`,
+  normalised to snake_case and resolved against existing tags via local
+  fastembed KNN (existing tags preferred). Responses carry `tag_resolution`
+  and `warnings`.
+- `first_mcp_update` keeps existing tags unless `tags` is given.
+- Pluggable `TagSuggester` protocol (`storage/tag_suggesters.py`), selected by
+  `FIRST_MCP_TAG_SUGGESTER` (default `none`, `gemini` available). Suggester
+  failures never block a write.
+- `google-genai` moved to the optional `[gemini]` extra; the v2 server no
+  longer crashes without `GOOGLE_API_KEY`.
+
+**Known limitation:** tag dedup threshold not yet calibrated (see
+"LLM made optional" under Version 2.0) — distinct but similar tags can merge.
+
 ### v1.5.2 ⛔ Superseded — enrichment agent retired in v1.6.0
 
 The planned enrichment agent improvements (tag ceiling removal, category
@@ -339,7 +357,7 @@ Lightweight direct-SQLite interface, no server required. Two purposes:
   soft-delete purge). Invoked manually when the server is idle — avoids SQLite
   write-lock conflicts.
 
-### LLM made optional — client-suggested tags (branch `feature/optional-llm-tagging`)
+### LLM made optional — client-suggested tags (✅ shipped in v1.7.0)
 
 The v2 server no longer requires Gemini (or any LLM). Retrieval was already
 LLM-free; write-time tagging now is too:
@@ -363,7 +381,8 @@ LLM-free; write-time tagging now is too:
   (`python_programming`/`javascript_programming` cos 0.865,
   `home_alarm`/`fire_alarm` 0.870). Now that client tags are primary, a false
   merge overrides the client's explicit choice — calibrate against production
-  tags before release.
+  tags. Shipped in v1.7.0 uncalibrated (known limitation); calibration
+  remains a v2.0 prerequisite.
 
 ### Distribution
 

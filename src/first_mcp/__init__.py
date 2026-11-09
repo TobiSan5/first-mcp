@@ -14,7 +14,7 @@ GitHub: https://github.com/TobiSan5/first-mcp
 Author: Torbjørn Wikestad <torbjorn.wikestad@gmail.com>
 """
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 __author__ = "Torbjørn Wikestad"
 __email__ = "torbjorn.wikestad@gmail.com"
 
